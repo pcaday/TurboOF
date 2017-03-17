@@ -1,0 +1,107 @@
+CI system-dependent words:
+
+(init-program)			( entrypoint args len -- flag )
+
+ Initialize the system-dependent portion of the saved program state, given
+ the entrypoint of the program, and, if this is a chained client, its arguments.
+ If this fails for some reason, return true; otherwise return false.
+
+(go)					( -- flag )
+
+ Pass control to the client. If unsuccessful, return true immediately;
+ otherwise return false when/if client returns.
+
+(go-from-enter)			( flag -- flag )
+
+ Return control to the client after the 'enter' service has been invoked.
+ Return true if unsuccessful; return false when/if the client returns. The
+ argument flag indicates what result code to return to the client.
+ 
+(go-from-exception)		( -- flag )
+
+ Return control to the client after a client-generated exception has been
+ caught. Returns true if unsuccessful and false when/if the client returns.
+
+(($callback))			( cistruct cbrout -- flag )
+
+ Execute a callback. cistruct is the CI structure to pass to the client;
+ cbrout is the address of the client's callback handler, as set by the
+ set-callback service. flag is zero if no error occurred.
+
+
+
+Additional CI system-independent words:
+
+
+check-valid			( -- )
+
+ Throws an error if valid? is false.
+
+ci-handler			( cistruct -- flag )
+
+ The system-independent CI handler procedure. addr is a pointer the CI
+ structure. After calling ci-handler, the system-dependent code should
+ return to the client. flag indicates whether the specified client service
+ was recognized, and is communicated in some system-dependent manner to the
+ client. flag = 0 specifies the client service was recognized; flag = -1
+ specifies that it was not.
+
+client-exception	( throw-code -- )
+
+ The system-independent exception handler for exceptions caught while
+ the client was executing. Starts the User Interface if necessary (as with
+ the 'enter' CI service) and throws throw-code. Arranges so that when
+ 'go' is called, (go-from-exception) is invoked.
+
+callback-exception	( throw-code -- )
+
+ The system-independent exception handler for exceptions caught while
+ a the client was executing a callback. Starts the User Interface if
+ necessary (as with the 'enter' CI service) and throws throw-code. If
+ the User Interface was not already running, arranges so that when 'go'
+ is called, (go-from-enter) is invoked with flag = -1, indicating an
+ error. Otherwise, if (go-from-enter) is called, its return value is
+ unchanged.
+
+ callback-exception assumes that the client's registers at the time of
+ the callback were not saved to the saved program state, so that a
+ (go-from-enter) will return to the client as it was when it called the
+ CI handler. If the platform CI code does save the client's registers
+ to the saved program state for a client exception caught during a callback,
+ it should call client-exception, not callback-exception.
+
+
+Overridable (defer) words:
+
+
+stop				( -- )
+
+ Cleans up after the client and prepares for Open Firmware to take
+ control of the machine. By default, calls (stop). Should return after
+ any platform-dependent actions have been taken.
+
+
+((enter))			( -- )
+
+ Prepares to enter the User Interface. By default, just calls ((enter-action)).
+ System-dependent code may override ((enter)) if it has special requirements for
+ entering the User Interface, but should always end by calling ((enter-action)),
+ which may not return.
+ 
+(ci-set-callback)	( newfunc -- oldfunc )
+
+ Called when the client invokes the set-callback service. The default action
+ is ((ci-set-callback)); if platform-dependent code overrides this word, it
+ should always call ((ci-set-callback)).
+
+
+
+The node /openprom/ci-services
+
+¥ The words in /openprom/ci-services implement the CI services. New
+services may be added simply by defining a word in this package with the
+same name as the desired service. The stack diagram for such a word is
+  : my-service		( argn...arg1 #args -- retn...ret1 #rets | -1 )
+If #args is incorrect, the word should abort; the CI handler will flag
+an error and return to the client. A return value of -1 indicates that
+the results have already been placed in ci-array.

@@ -1,0 +1,180 @@
+: squ		_1@ <square> ; immediate squ
+`text forth/forthup.of
+: squ ;
+`text forth/forth.of
+
+`text ppc/ppc-internals.of
+`text forth/inline-binary.of
+`text forth/alloc-mem.of
+`text forth/memory.of
+`text ppc/ppc-mapping.of
+`text of/strings.of
+`text of/device.of
+`text forth/see.of
+`text forth/backtrace.of
+`text ppc/ppc-registers.of
+
+`text forth/utilities.of
+`text forth/completion.of
+
+`text of/options.of
+`text ppc/ppc-options.of
+`text platform/ppc-mac/mac-secondary-options.of
+`text platform/platform-defaults.of
+`text of/script.of
+
+( ======== )
+setenv screen-#rows 100
+setenv screen-#columns 100
+( ======== )
+
+`text of/terminal-emulator.of
+`bin  (default-font)	packages/gallumph-6x11.bin
+`text packages/fb8.of
+
+`text of/timing.of
+`text ppc/ppc-timing.of
+`text platform/m2/platform-vars-m2.of
+`text platform/ppc-mac/mac-ppc-via-timing.of
+
+`text of/alarm.of
+`text ppc/ppc-alarm.of
+
+`text of/stubs.of
+`text of/fcode.of
+
+
+`bin ppc-memory			ppc/ppc-memory.bin
+`bin terminal-emulator	packages/terminal-emulator.bin
+`bin adb-mouse			drivers/adb/adb-mouse.bin
+`bin adb-keyboard		drivers/adb/adb-keyboard.bin
+`bin mac-scc			drivers/serial/mac-scc.bin
+`bin scc-channel		drivers/serial/scc-channel.bin
+`bin via-pmu-m2			drivers/via/via-pmu-m2.bin
+`bin pmu-adb			drivers/adb/pmu-adb.bin
+`bin ecsc				drivers/video/ecsc.bin
+`bin pbx-whitney		drivers/m2/pbx-whitney.bin
+`bin ata-disk			drivers/ata/ata-disk.bin
+`bin atapi-disk			drivers/ata/atapi-disk.bin
+`bin rom-m2				drivers/m2/rom-m2.bin
+`bin mac-5830			drivers/scsi/mac-5830.bin
+`bin singer2			drivers/m2/singer2.bin
+`bin swim2				drivers/m2/swim2.bin
+`bin trex				drivers/m2/trex.bin
+`bin keystone			drivers/video/keystone.bin
+`bin baboon-ata			drivers/ata/baboon-ata.bin
+`bin baboon				drivers/m2/baboon.bin
+`bin baboon-media-bay	drivers/m2/baboon-media-bay.bin
+`bin icr				drivers/m2/icr.bin
+
+\ device-tree-common: properties and words for the standard system nodes.
+\  ¥ These are loaded before a flattened device tree, if any.
+\  ¥ A flattened device tree or the system-specific model file can override these.
+`text of/device-tree-common.of
+`text of/native-console.of
+
+
+dev /
+
+`text ppc/ppc-cpu.of
+
+A5A500FF <square>
+
+`text ppc/ppc-ata-ops.of
+`text platform/m2/platform-m2.of
+
+dev /packages
+new-device
+	`text packages/deblocker.of
+finish-device
+dev ..
+
+( ======== )
+
+`text platform/m2/temp-graphics-m2.of
+
+dev /packages/terminal-emulator
+0 to default-background
+F to default-foreground
+unselect-dev
+
+: native-output
+	" /screen" output
+	unselect-dev
+;
+
+native-output
+
+unselect-dev
+
+d# 100 ms
+dev /
+ls-all
+unselect-dev
+
+
+dev /pbx-whitney/via-pmu/adb
+
+" /pbx-whitney/via-pmu/adb" open-dev to my-self
+
+probe
+
+" keyboard" input
+
+( ======== )
+
+unselect-dev
+
+`text of/claim.of
+
+dev /packages
+new-device
+	`text packages/mac-disk-label.of
+finish-device
+unselect-dev
+
+`text ci/ci.of
+`text ppc/ppc-ci.of
+`text ci/boot.of
+`text ci/ci-services.of
+
+dev /packages
+new-child
+	`text packages/ppc/mac-ppc-file-loader.of
+child-end
+unselect-dev
+
+`text platform/ppc-mac/mac-ppc-boot.of
+`text of/startup.of
+
+`text platform/m2/sleep-m2.of
+
+
+`text of/apple-of-compatibility.of
+
+`bin hfs-compare-tab packages/hfs-compare-tab.bin
+dev /packages
+	`text packages/hfs-files.of
+unselect-dev
+
+`text of/shortcuts.of
+
+( ======== )
+
+setenv boot-args -s
+
+
+\ Put cpu after pbx-whitney, remove /screen (and /keystone).
+\  For some reason necessary to avoid a kernel trap.
+" /cpus/@0" find-phandle " /pbx-whitney" find-phandle
+\ 2dup n>next @ swap n>next !
+over root swap n>parent !
+n>next !
+/packages dup n>next @ n>next @ swap n>next ! 
+
+
+
+( ======== )
+
+start-up
+quit

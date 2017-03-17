@@ -1,0 +1,22 @@
+(is_out_of_the_way)
+CR2:
+	lt  moving code?
+	gt	moving NVRAM?
+	eq	moving text?
+	so	moving memory bank record? (PRIMARY)
+
+CR3:
+	lt	little-endian?
+	gt	real-mode?
+	eq	NVRAM separate from text/ppc-boot?
+	so	601?
+CR4:
+	lt	SWT? (if so, no page table)
+	gt	deferred vector entry?
+	eq	NVRAM in ppc-boot?
+	so
+ 
+¥ some processors may modify SRRs when IR or DR is on. I suspect this
+	is only for the "cause" bits, but you never know. If not, we'll
+	need to sc to real-mode before setting LE in step B.
+	

@@ -1,0 +1,59 @@
+--- memory.of ---
+
+¥ resize-mem			( addr old-len new-len -- new-addr )
+
+ Resizes the memory region given by addr with length old-len
+ to have length new-len. If old-len > new-len, simply
+ FREE-MEM's the unneeded memory and returns addr.
+ Otherwise allocates a new block of size new-len, copies the
+ data into it, and returns this new block.
+
+--- device.of ---
+
+¥ $?call-method			( addr len ihandle -- ... | )
+
+ Works like $call-method, except if the specified method
+ does not exist in the package corresponding to the instance
+ given, does nothing rather than throwing an error.
+
+¥ (invoke)				( phandle -- ihandle )
+
+ Allocate a new ihandle for the given phandle, copying
+ over the minimum amount of information. Used by invoke
+ and new-device. The new ihandle is also made the current
+ instance. It is not, however, opened.
+
+¥ invoke				( phandle -- ihandle )
+
+ Allocate a new ihandle for the given phandle, as with
+ (invoke), also initializing my-unit, my-space and any
+ instance-specific data. The new ihandle is also made
+ the current instance. It is not, however, opened.
+
+¥ try-open				( -- successful? )
+
+ Attempt to open the current instance. Returns false
+ if an OPEN method is not found or returns false; returns
+ true otherwise.
+
+¥Êset-arg-str			( addr len -- )
+
+ Set the arguments of the current instance to the string
+ passed in.
+
+
+
+--- alarm.of ---
+
+¥ alarms				value
+
+ Stores a pointer to the list of alarms, which is in
+ alloc-mem memory. Each alarm consists of three cells:
+ (xt ihandle interval)
+
+¥ alarm-scan			( -- )
+
+ Scans through the list of alarms and executes the ones
+ which have gone off since the last time it was called.
+ Is to be called at some regular interval by the platform,
+ probally via a periodic interrupt.

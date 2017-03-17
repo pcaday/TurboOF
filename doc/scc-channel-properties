@@ -1,0 +1,12 @@
+- Auxiliary properties required for each channel:
+
+clocks contains the desired contents of WR11 for each channel.
+
+clock-freq is the frequency of the clock input/crystal, in hertz.
+
+ch-*-brg-src controls the source for the BRG (for WR14) for each channel.
+ 0: BRG source is the RTxC pin or XTAL (depending on the MSB of ch-*-clocks)
+ 1: BRG source is PCLK
+
+wait/req controls the wait/request interface to the SCC; specifically, it is the
+ high 3 bits of WR1.

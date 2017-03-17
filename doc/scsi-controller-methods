@@ -1,0 +1,27 @@
+: execute-command		( data-addr data-len dir cmd-addr cmd-len -- hw-result | statbyte false )
+
+;
+
+: reset					( -- )
+
+;
+
+: open-hardware			( -- okay? )
+
+;
+
+: reopen-hardware		( -- okay? )
+
+;
+
+: close-hardware		( -- )
+
+;
+
+: reclose-hardware		( -- )
+
+;
+
+: set-address			( target-lun target-id -- )
+
+;

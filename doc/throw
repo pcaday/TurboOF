@@ -1,0 +1,20 @@
+Catch-Throw Frame Format (version: 26)
+======================================
+
+A catch-throw frame consists of (in order):
+	- temporary rstack space (at least one cell)
+	- catch handler pointer
+	- (except for default catch) 3 cells of saved data
+		(dstack, my-self, next frame)
+	
+[--temporary rstack--] handler-xt [saved-dstack saved-my-self next-frame-ptr]
+                      ^
+					  |
+				frame pointer
+
+The top frame pointer is stored in last-ef.
+
+
+There are two catch handlers:
+	default-catch				always installed
+	>catch						installed by catch

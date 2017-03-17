@@ -1,0 +1,357 @@
+`text forth/forthup.of
+`text forth/forth.of
+
+( ======== Hosted miscellanea ======== )
+
+' (host-emit) to (emit)
+:noname true ; to emit?
+
+0 value host-key-buf
+
+: (host-key-remap)
+	host-key-buf dup if
+		0 to host-key-buf
+	else
+		drop (host-key) case
+			01 of ascii H endof
+			04 of ascii K endof
+			0B of ascii ? endof
+			0C of ascii / endof
+			1C of ascii D endof
+			1D of ascii C endof
+			1E of ascii A endof
+			1F of ascii B endof
+			7F of ascii P endof
+			exit
+		endcase
+		to host-key-buf csi
+	then
+;
+
+: (host-key-remap?)
+	host-key-buf if
+		true
+	else
+		(host-key?)
+	then
+;
+
+' (host-key-remap) to key
+' (host-key-remap?) to key?
+
+' (host-bye) to bye
+D (host-emit)
+
+1 constant mem-#existing
+create mem-existing 0 , 1C000000 ,
+
+0 constant pagetab-size
+0 constant pagetab
+
+create nvram
+0 l,
+80 w,
+8 w,
+-1 l,
+-1 l,
+-1 l,
+-1 l,
+800000 l,
+100 l,
+100 l,
+
+nvram 200 + dp!
+200 constant nvram-len
+
+180 buffer: internals
+200 buffer: contexts
+60 (field) int>bits
+94 (field) int>of-ctx
+9C (field) int>client-ctx
+A0 (field) int>f-ci-handler
+AC (field) int>f-cx-handler
+contexts internals int>client-ctx !
+contexts 100 + internals int>of-ctx !
+
+: ((go)) true ;
+: ((init-prgm)) drop false ;
+defer ((($callback)))
+: (ci-return) true ;
+: (cx-return) true ;
+: (install-ints) ;
+: (restore-ints) ;
+: (save-ath) ;
+: (install-ath) ;
+: (restore-ath) ;
+: (client-maps) ;
+: ee? false ;
+: ee! drop ;
+
+( ======== )
+`text forth/inline-binary.of
+`text forth/alloc-mem.of
+`text forth/memory.of
+`text ppc/ppc-mapping.of
+( ======== )
+
+: in-of-mem?		( addr -- in-of-mem? )
+	dup in-of-mem?
+	swap dup ['] + u>= swap ['] <debug> u<= and or
+;
+
+false value translate-callback?
+false value alloc-callback?
+
+( ======== )
+`text of/strings.of
+`text of/device.of
+`text forth/see.of
+`text forth/backtrace.of
+`text ppc/ppc-registers.of
+`text forth/utilities.of
+`text forth/completion.of
+`text of/options.of
+`text ppc/ppc-options.of
+`text platform/ppc-mac/mac-secondary-options.of
+`text platform/platform-defaults.of
+`text of/script.of
+
+`text of/terminal-emulator.of
+`bin  (default-font)	packages/gallumph-6x11.bin
+`text packages/fb8.of
+
+( ======== SPR overrides ======== )
+
+: spr@
+	dup l2cr = if
+		drop A9100000
+	else
+		dup 10 and if
+			drop 0
+		else
+			spr@
+		then
+	then
+;
+
+: spr!
+	dup 10 and if
+		2drop
+	else
+		spr!
+	then
+;
+
+0 constant pvr@
+B032 constant msr@
+
+( ======== )
+
+`text of/timing.of
+`text ppc/ppc-timing.of
+`text platform/m2/platform-vars-m2.of
+`text platform/ppc-mac/mac-ppc-via-timing.of
+
+( ========= )
+
+`text of/alarm.of
+
+( Hosted alarms )
+
+true value (alarms?)
+' (alarms?) to alarms?
+
+: alarms!	dup to (alarms?) (host-alarms!) ;
+
+: (user-abort)	['] abort (host-u-a) ;
+: user-abort	r> ['] (user-abort) >r >r ;
+
+' alarm-scan (host-ahdlr!)
+true alarms!
+
+( ========= )
+
+`text of/stubs.of
+`text of/fcode.of
+
+( ======== FCode ======== )
+
+`bin ppc-memory			ppc/ppc-memory.bin
+`bin terminal-emulator	packages/terminal-emulator.bin
+`bin adb-mouse			drivers/adb/adb-mouse.bin
+`bin adb-keyboard		drivers/adb/adb-keyboard.bin
+`bin mac-scc			drivers/serial/mac-scc.bin
+`bin scc-channel		drivers/serial/scc-channel.bin
+`bin via-pmu-m2			drivers/via/via-pmu-m2.bin
+`bin pmu-adb			drivers/adb/pmu-adb.bin
+`bin ecsc				drivers/video/ecsc.bin
+`bin pbx-whitney		drivers/m2/pbx-whitney.bin
+`bin ata-disk			drivers/ata/ata-disk.bin
+`bin atapi-disk			drivers/ata/atapi-disk.bin
+`bin rom-m2				drivers/m2/rom-m2.bin
+`bin mac-5830			drivers/scsi/mac-5830.bin
+`bin singer2			drivers/m2/singer2.bin
+`bin swim2				drivers/m2/swim2.bin
+`bin trex				drivers/m2/trex.bin
+`bin keystone			drivers/video/keystone.bin
+`bin baboon-ata			drivers/ata/baboon-ata.bin
+`bin baboon				drivers/m2/baboon.bin
+`bin baboon-media-bay	drivers/m2/baboon-media-bay.bin
+`bin icr				drivers/m2/icr.bin
+
+
+\ device-tree-common: properties and words for the standard system nodes.
+\  ¥ These are loaded before a flattened device tree, if any.
+\  ¥ A flattened device tree or the system-specific model file can override these.
+
+`text of/device-tree-common.of
+`text of/native-console.of
+
+`text of/claim.of
+
+
+dev /
+`text ppc/ppc-cpu.of
+
+dev /packages
+new-device
+	`text packages/deblocker.of
+finish-device
+new-device
+	`text packages/mac-disk-label.of
+finish-device
+dev ..
+
+
+`text ppc/ppc-ata-ops.of
+`text platform/m2/platform-m2.of
+
+( ======== )
+
+`text platform/m2/temp-graphics-m2.of
+
+dev /packages/terminal-emulator
+FF to default-background
+d# 228 to default-foreground
+unselect-dev
+
+: native-output
+	" /screen" output
+	unselect-dev
+;
+
+native-output
+
+alias fcode-version2 noop
+alias fcode-end noop
+alias external noop
+alias headers noop
+
+unselect-dev
+dev /
+new-child
+" hosted-input" 2dup device-name device-type
+
+: open		true ;
+: close		;
+
+: read		( addr n -- actual )
+	0= (host-key-remap?) not or if
+		drop 0
+	else
+		(host-key-remap) swap c! 1
+	then
+;
+
+child-end
+
+unselect-dev
+
+
+" /hosted-input" input
+
+setenv input-device /hosted-input
+setenv output-device /screen
+
+( ======== )
+
+`text ci/ci.of
+`text ppc/ppc-ci.of
+`text ci/boot.of
+`text ci/ci-services.of
+
+dev /packages
+new-child
+	`text packages/ppc/mac-ppc-file-loader.of
+	' 3drop to (file-loader-copy)
+	' 2drop to (file-loader-bss)
+child-end
+unselect-dev
+
+`text platform/ppc-mac/mac-ppc-boot.of
+`text of/startup.of
+
+40010 alloc-mem
+(u.) " load-base" $setenv
+
+( ======== )
+
+`text of/apple-of-compatibility.of
+
+
+dev /
+new-device
+" cd" device-name
+
+200 constant block-size
+4000.0000 constant max-transfer
+
+0 value deblocker
+0 value hfs-files
+
+A value drive#
+FFCA value drn
+
+: do-seek		( d -- )
+	" seek" deblocker $call-method
+	0<> abort" SEEK failed"
+;
+
+: do-read		( addr len -- )
+	tuck " read" deblocker $call-method <> abort" READ failed"
+;
+
+: read-blocks		( addr block# #blocks -- actual-#blocks )
+	200 * swap 200 * drive# drn (host-read) 200 /
+;
+
+: write-blocks
+	abort
+;
+
+: open
+	" " " deblocker" $open-package dup to deblocker 0<>
+	my-args " hfs-files" $open-package dup to hfs-files 0<> and
+;
+
+: close
+	deblocker close-package
+	hfs-files close-package
+;
+
+: dir		" dir" hfs-files $call-method ;
+: load		" load" hfs-files $call-method ;
+
+finish-device
+unselect-dev
+
+`bin hfs-compare-tab packages/hfs-compare-tab.bin
+
+dev /packages
+	`text packages/hfs-files.of
+unselect-dev
+
+`text of/shortcuts.of
+
+start-up
+quit

@@ -1,0 +1,42 @@
+	
+		; Procedure from MkLinux
+		
+Visor	PROC EXPORT
+		MACHINE MC68010		; for RTD
+
+		MOVE.L	A7, D7		; Save off A7 -- in 8.6 EnterSupervisorMode seems to trash it -- perhaps setting it to ISP?
+		MOVEQ	#$8, D0		; Dispatch for EnterSupervisorMode
+		DC.W	$A08D		; _DebugUtil
+		MOVEA.L	D7, A7		; Restore A7
+		ORI.W	#$0700, SR	; Interrupts off
+		NOP
+		
+		MOVEA.L	#$47617279, A0	; 'Gary'
+		MOVEA.L	#$05051956, A1	; Birthdate? (5/5/56)
+		MOVE.L	#$0000C000, D0	; Bits to clear in MSR (EE, PR)?
+		CLR.L	D2				; Bits to set in MSR?
+		RESET					; Get into supervisor mode
+		
+		ADDQ.L	#4, A7		; Frame on stack
+Nter:	DC.W	$FE03		; Call the NanoKernel
+		BEQ.S	Nter
+		
+		RTD		#$4
+		
+		ENDPROC
+
+	END
+
+; Asm -case on -o :TOF:object:mac-secondary-68k.a.o :TOF:mac-secondary-68k.a
+
+; Link :TOF:object:mac-secondary-68k.a.o -o :TOF:mac-secondary -rt zcod
+
+
+
+
+
+
+
+
+
+

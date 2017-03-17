@@ -1,0 +1,23 @@
+PPC-CI notes
+------------
+
+¥ This implementation does NOT invoke the translate callback on DSI/ISI in
+the User Interface in Virtual Mode as the PPC platform binding requires.
+To invoke the callback would require turning translation on, which quite
+possibly would cause another DSI/ISI. Instead, the DSI/ISI handlers will
+always throw an error directly to Forth, even in the case of HTAB spills.
+
+¥ The flag install-ath-w/-ints? (Forth), if set,
+allows for a modification of the behavior of 'enter' in Virtual Mode when a
+mapping callback has been defined. When set, 'enter' calls save-ath/install-ath/
+restore-ath if a mapping callback has not been defined, in addition to
+install-ints/restore-ints
+
+
+
+possible (go-from-exception) implementation notes:
+
+	¥ ppc-core-flat: implement returning to client after cx, needs a new swapdesc or
+can share with callback_swapdesc
+	¥ ppc-core-flat: cx_return: consider loading SRR1 (the client's new MSR) from the
+MSR field of the client context, not the SRR1 field.

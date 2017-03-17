@@ -1,0 +1,3 @@
+¥Êload: differs from 1275 standard by allowing aliased devices with
+arguments. For instance, "hd:10" is not a defined alias and does not
+start with /, so by IEEE 1275, it should be considered the argument.

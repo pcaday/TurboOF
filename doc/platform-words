@@ -1,0 +1,9 @@
+¥ dma-granularity		( -- u )
+
+ Returns the alignment needed for DMA operations on the system bus.
+
+
+¥ align-mem-region		( addr len -- addr' len' )
+
+ Possibly expand the given memory region to a region that can
+ be mapped by the MMU independent of other memory regions.

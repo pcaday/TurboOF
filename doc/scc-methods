@@ -1,0 +1,11 @@
+Host-specific methods required by scc.fci
+
+¥ rr@			( reg ch -- byte )
+
+ Retrieve the contents of the specified read register in the
+ given channel.
+ 
+
+¥ wr!			( byte reg ch -- )
+
+ Write byte to the specified write register in the given channel.

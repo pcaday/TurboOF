@@ -1,0 +1,4 @@
+¥ The gamma table is read/written just like the
+CLUT. In 16-bit mode, ECSC appears only to use
+0x20 of the gamma table's entries (spaced evenly
+through the table), since that's all it needs.

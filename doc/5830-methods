@@ -1,0 +1,21 @@
+Host-specific methods required by 5830.fci
+
+¥Êreg@						( reg# -- byte )
+
+ Read the given register (0 <= reg# <= 7), returning its value.
+ 
+ 
+¥ reg!						( byte reg# )
+
+ Write byte to the given register.
+ 
+
+¥ (open-hardware)			( -- okay? )
+
+ Do any memory mapping, chip enabling, etc. necessary
+ so that the 5830 can be accessed.
+
+
+¥ (close-hardware)			( -- )
+
+ Undo the effects of (open-hardware), if any.

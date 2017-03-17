@@ -1,0 +1,13 @@
+: c>f$-max		( cstring maxlen -- addr len )
+
+ Unpacks a null-terminated string into a Forth string,
+ searching at most maxlen bytes for a terminating character.
+ 
+
+: f>c$-max		( addr len dest-addr dest-size -- len-actual )
+
+ Packs a Forth string as a null-terminated string into the buffer
+ at dest-addr with size dest-size. If there is not enough room to
+ store the complete string, as much as possible is stored, and the
+ terminator char is not added. len-actual returns the number of
+ characters (not including the terminator) that were stored.
