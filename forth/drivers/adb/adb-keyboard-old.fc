@@ -1,0 +1,181 @@
+fcode-version2
+hex
+
+external
+
+" keyboard" encode-string
+2dup " name" property
+" device_type" property
+
+
+9B constant csi
+
+instance variable response
+-1 instance value queue
+10 instance buffer: key-map
+false instance value control?
+false instance value shift?
+false instance value caps?
+-1 instance value last-key
+0 instance value last-key-time
+get-msecs instance value last-read-time
+0 instance value pending-char
+
+160 constant rep-thresh
+30 constant rep-speed
+A constant read-delay
+
+create key-tab
+tokenizer[ 609 emit-byte ]tokenizer
+" asdfhgzxcv"(00)bqwer"()yt123465=97-80]ou"()[ip"(0D)lj'k;\,/nm."(09) `"(080D1BFE00FFFD1BC4C3C2C10000)."(00)*"(00)+"(0015000000)/"(0D00)-"(0000)=01234567"(00)89"(0000080000000000000000000000000D0000000000C0C8BFD000CB00AF00FF00FE0000)"
+
+create key-tab-shift
+tokenizer[ 609 emit-byte ]tokenizer
+" ASDFHGZXCV"(00)BQWER"()YT!@#$^%+"(28)&_*"(29)}OU"(){IP"(0D)LJ"(22)K:|<?NM>"(09) ~"(080D1BFE00FFFD1BC4C3C2C10000)."(00)*"(00)+"(0015000000)/"(0D00)-"(0000)=01234567"(00)89"(0000080000000000000000000000000D0000000000C0C8BFD000CB00AF00FF00FE0000)"
+
+: (get-keyboard-event)			( -- scan down? true | false )
+	queue -1 <> if		\ saved character from last query?
+		queue dup 7F and swap 7 >> 1- true dup to queue exit
+	then
+	get-msecs last-read-time - read-delay u< if
+		false exit
+	then
+	get-msecs to last-read-time
+	response 2 0 my-unit " read-reg" $call-parent
+	2 u< if
+		false
+	else
+		response c@ >r				\ save key 1
+
+		response char+ c@			\ process key 2
+		FF and dup
+		FF = if
+			drop
+		else
+			dup r@ = if
+				drop
+			else
+				to queue
+			then
+		then
+		
+		r@ 7F and r> 7 >> 1- true	\ process key 1
+	then
+;
+
+: autorepeat-char?			( char -- autorepeat? )
+	>r r@ 1- FC u< r> 1B <> and
+;
+
+: get-keyboard-event	( -- scan down? true | false )
+	(get-keyboard-event) if
+		dup if
+			over key-tab + c@
+			autorepeat-char? if
+				over to last-key
+				get-msecs to last-key-time
+			else
+				-1 to last-key
+			then
+		else
+			over last-key = if
+				-1 to last-key
+			then
+		then
+		true
+	else
+		last-key 1+ if
+			get-msecs last-key-time - rep-thresh -
+			0>= if
+				last-key-time rep-speed + to last-key-time
+				last-key true true exit
+			then
+		then
+		false
+	then
+;
+
+: get-key-map			( -- addr [len] )
+	key-map dup 10 erase			\ change to "key-map 10 2dup erase" for OW behavior
+	begin	
+		(get-keyboard-event)		\ Gather whatever's happened since we last checked the keyboard
+	while							\ (or at least a little of it)
+		>r >r
+		r@ 3 >> key-map +
+		1 r> 7 and <<
+		r> if
+			over c@ or
+		else
+			not over c@ and		
+		then
+		swap c!
+	repeat
+;
+
+: key-translate					( scan down? -- char )
+	0<> >r shift? if
+		key-tab-shift
+	else
+		key-tab
+	then
+	+ c@ dup FD >= if
+		r> swap case
+			FF of		\ shift
+				to shift?
+			endof
+			FE of		\ control
+				to control?
+			endof
+			FD of		\ caps lock
+				to caps?
+			endof
+			drop
+		endcase 0
+	else
+		r> and
+		dup 80 and if
+			7F and to pending-char csi
+		else
+			control? if
+				1F and
+			else
+				caps? if
+					upc
+				then
+			then
+		then
+	then
+;
+
+
+: read					( addr len -- actual )
+	0= if
+		drop 0 exit
+	then
+
+	pending-char dup if
+		0 to pending-char
+		swap c! 1 exit
+	then drop
+	
+	begin
+		get-keyboard-event
+	while
+		key-translate
+		dup if
+			swap c! 1 exit
+		then drop
+	repeat
+
+	drop 0
+;
+
+: open
+	-1 to queue
+	-1 to last-key
+	0 to last-key-time
+	true
+;
+: close	;
+
+fcode-end

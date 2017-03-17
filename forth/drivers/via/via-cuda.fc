@@ -1,0 +1,109 @@
+fcode-version2
+hex
+
+" via-cuda" device-name
+" cuda" device-type
+my-space 2000 reg
+
+external
+
+0 value reg-base
+0 value #opens
+
+: reg!		reg-base + rb! ;	( n off -- )
+: reg@		reg-base + rb@ ;	( off -- n )
+
+0 constant data-b
+400 constant ddir-b
+800 constant t1-ctr-lo
+A00 constant t1-ctr-hi
+1400 constant shift
+1600 constant actl
+1800 constant pctl
+1A00 constant iflag
+1C00 constant ien
+
+: term		data-b reg@ 30 or data-b reg! ;
+: tip+		data-b reg@ DF and data-b reg! ;
+: tip-		data-b reg@ 20 or data-b reg! ;
+: ba+		data-b reg@ EF and data-b reg! ;
+: ba-		data-b reg@ 10 or data-b reg! ;
+: ba~		data-b reg@ 10 xor data-b reg! ;
+: treq		data-b reg@ 8 and 0= ;
+: wait-tr+	begin treq until ;
+: wait-tr-	begin treq not until ;
+: wait-int	begin iflag reg@ 4 and until ;
+: sc		shift reg@ drop ;
+: input		actl reg@ EF and actl reg! ;
+: output	actl reg@ 10 or actl reg! ;
+: >shift	shift reg! ;
+: del		1 tokenizer[ 600 emit-byte ]tokenizer ;
+
+: open
+	#opens dup 0= if
+\		my-unit 2000 s" map-in" $call-parent to reg-base
+		0 pctl reg!
+		7F ien reg!
+		7F iflag reg!
+		ddir-b reg@ 30 or F7 and ddir-b reg!
+		actl reg@ C or EF and actl reg!
+		sc term 4 ms sc
+		ba+ wait-tr+ wait-int sc
+		ba- wait-tr- wait-int tip- sc
+	then
+	1+ to #opens
+	true
+;
+
+: close
+	#opens dup 1- to #opens
+	0= if
+\		reg-base 2000 s" map-out" $call-parent
+	then
+;
+
+: read		( addr len -- actual )
+	dup >r
+	wait-int
+	treq not if tip+ del input tip- 2drop r> drop 0 exit then
+	sc del input tip+
+	0 ?do
+		wait-int
+		shift reg@ over i + c!
+		treq if
+			ba~
+		else
+			term drop i 1+ unloop r> drop exit
+		then
+	loop
+	drop wait-int sc term r>
+;
+
+: write		( addr len -- actual )
+	dup 0= treq or if
+		2drop 0 exit
+	then output
+	over c@ >shift ba- tip+
+	tuck 1 ?do
+		wait-int
+		treq if
+			sc tip- 0 0 read 3drop i unloop exit ( look-^ )
+		else
+			dup i + c@ >shift ba~
+		then
+	loop
+	drop wait-int sc term
+;
+
+: shut-down		( -- )
+	" "(010A)" write
+	begin again
+;
+
+: reset-all		( -- )
+	" "(0111)" write
+	begin again
+;
+
+
+fcode-end

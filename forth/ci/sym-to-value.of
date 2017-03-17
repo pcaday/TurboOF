@@ -1,0 +1,77 @@
+( visual-check me! )
+( vvvvvvvvvvvvvvvv )
+
+defer sym>value
+defer value>sym
+
+' false dup to sym>value to value>sym
+
+0 value sym>value-cb
+0 value value>sym-cb
+
+80 buffer: sym<->val-buf
+
+: (sym>value)	( addr len -- addr len false | n true )
+	callback-addr >r
+	sym>value-cb to callback-addr
+	
+	dup 80 >= abort" symbol name too long [127 chars max]"
+	2dup sym<->val-buf f>c$
+	sym<->val-buf 1 " sym-to-value" ['] $callback catch dup 0= if
+		drop if
+			drop false
+		else
+			chunk true
+		then 0
+	then
+	
+	r> to callback-addr throw
+;
+
+: (value>sym)	( n -- n false | offset addr len )
+	callback-addr >r
+	value>sym-cb to callback-addr
+	
+	dup 1 " value-to-sym" ['] $callback catch dup 0= if
+		dup -1 = if
+			2drop false
+		else
+			swap sym<->val-buf 80 move
+			sym<->val-buf 80 c>f$-max
+		then 0
+	then
+	
+	r> to callback-addr throw
+;
+
+( ^^^^^^^^^^^^^^ )
+
+: sym		parse-word sym>value 0= if abort then ;
+: .adr		value>sym ?dup if type [char] + emit .h else .cell then ;
+
+
+
+dev /openprom/ci-services
+
+\  in: [address]value-to-sym [address]sym-to-value
+\ out:
+: set-symbol-lookup
+	2 (ci-check-#args)
+	dup if
+		to sym>value-cb
+		['] (sym>value)
+	else
+		drop
+		['] false
+	then to sym>value
+	dup if
+		to value>sym-cb
+		['] (value>sym)
+	else
+		drop
+		['] false
+	then to value>sym
+	0
+;
+
+unselect-dev

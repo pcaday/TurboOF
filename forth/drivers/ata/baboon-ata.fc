@@ -1,0 +1,474 @@
+fcode-version2
+hex
+
+" ata" device-name
+" ata" device-type
+" baboon-ata" encode-string " compatible" property
+
+1 encode-int " #address-cells" property
+0 encode-int " #size-cells" property
+
+headers
+
+my-space 44 2dup reg " map-in" $call-parent constant baboon-ata-base
+
+baboon-ata-base 4 + dup constant feat constant errkind
+baboon-ata-base 8 + constant scnt
+baboon-ata-base C + constant snum
+baboon-ata-base 10 + constant cyl.lo
+baboon-ata-base 14 + constant cyl.hi
+baboon-ata-base 18 + constant d/h
+baboon-ata-base 1C + dup constant cmd constant sts
+baboon-ata-base 38 + dup constant dctl constant asts
+baboon-ata-base 0 + value data
+
+baboon-ata-base 40 + constant timing
+
+( ==== )
+
+: w@-le		dup c@ swap 1+ c@ bwjoin ;
+
+( ==== )
+EB14 constant atapi-sig
+
+80 constant bsy
+40 constant drdy
+20 constant _df
+8 constant drq
+1 constant err
+( ==== )
+8 constant pio-mode
+20 constant mwdma-mode
+40 constant udma-mode
+
+0 value dev0-mode
+0 value dev1-mode
+( ==== )
+0 constant dt-missing
+1 constant dt-ata
+2 constant dt-atapi
+
+0 value dev0
+0 value dev1
+( ==== )
+200 buffer: identify-buf0
+200 buffer: identify-buf1
+( ==== )
+0 value data-buf
+0 value data-len
+( ==== )
+
+: read-pio		( -- )
+	data-buf data-len 1+ 1 >> data
+	tokenizer[ 60B emit-byte ]tokenizer " (read-ata-pio-be)"
+;
+
+: write-pio		( -- )
+	data-buf data-len 1+ 1 >> data
+	tokenizer[ 60B emit-byte ]tokenizer " (write-ata-pio-be)"
+;
+
+: us			( -- )
+	tokenizer[ 600 emit-byte ]tokenizer
+;
+
+5 value timeout-secs
+: (timeout)		( xt -- timed-out? )
+	>r get-msecs timeout-secs d# 1000 * +
+	begin
+		r@ execute if
+			r> 2drop false exit
+		then
+		get-msecs over u>=
+		1 us
+	until
+	r> 2drop true
+;
+
+
+\ Searches MSB to LSB for the first 1 bit in its argument. Returns
+\  its bit position, where LSB = 0. If its argument is zero, returns -1.
+: first-bit				( n -- u )
+	/n 3 << 0 ?do
+		dup 80000000 and if
+			drop /n 3 << 1- i - unloop exit
+		then
+		1 <<
+	loop
+	drop -1
+;
+
+\ Retrieve device's maximum modes and minimum cycle timings (in ns),
+\  if present, from the identify information. If device does not
+\  support UDMA, max-ultra is -1; if device does not support
+\  MWDMA, max-mw is -1. If device does not have timing info, uses
+\  the minimum timings from the ATA specification. UDMA timing always
+\  comes from the ATA specification.
+: get-device-modes		( identify-buf -- max-ultra max-mw mw-timing max-pio pio-timing )
+	>r
+	r@ d# 53 wa+ w@-le dup 4 and if
+		r@ d# 88 wa+ w@-le 1F and first-bit
+	else
+		-1
+	then
+	r@ d# 63 wa+ w@-le 7 and first-bit
+	rot 2 and if
+		r@ d# 66 wa+ w@-le		
+		r@ d# 64 wa+ w@-le 3 and first-bit 3 +			\ PIO 2, 3, or 4
+		r@ d# 49 wa+ w@-le 0800 and if d# 68 else d# 67 then
+		r@ swap wa+ w@-le
+	else
+		0
+		r@ d# 51 wa+ w@-le 8 >>
+		0
+	then
+	r> drop
+	?dup 0= if
+		dup case
+			0 of d# 600 endof
+			1 of d# 383 endof
+			2 of d# 240 endof
+			3 of d# 180 endof
+			4 of d# 120 endof
+			0 swap
+		endcase
+	then
+	>r >r ?dup 0= if
+		dup case
+			0 of d# 480 endof
+			1 of d# 150 endof
+			2 of d# 120 endof
+			0 swap
+		endcase
+	then r> r>
+;
+
+
+0 value pio-timing
+0 value max-pio
+0 value mw-timing
+0 value max-mw
+
+: baboon-pio-timing		( ns -- w )
+	dup d# 383 u> if drop 485 exit then
+	dup d# 240 u> if drop 284 exit then
+	d# 180 u> if 143 else 142 then
+;
+
+
+\ Configures HBA timings, determines the transfer mode for each device, storing
+\  the results in dev0-mode and dev1-mode.
+: config-timing		( -- )
+	dev0 if
+		identify-buf0 get-device-modes
+	else
+		0 FFFF 0 FFFF 0
+	then
+	to pio-timing to max-pio to mw-timing to max-mw drop
+
+	dev1 if	
+		identify-buf1 get-device-modes
+		pio-timing max to pio-timing
+		max-pio min to max-pio
+		mw-timing max to mw-timing
+		max-mw min to max-mw
+		drop
+	then
+	
+	max-pio 4 min pio-mode or
+	dup to dev0-mode to dev1-mode
+	
+	pio-timing baboon-pio-timing timing rw!
+;
+
+( ==== )
+
+: (wait-bsy-)		sts rb@ bsy and 0= ;			( -- done? )
+: (wait-bsy-drq-)	sts rb@ bsy drq or and 0= ;		( -- done? )
+: (wait-err-)		sts rb@ err and 0= ;			( -- done? )
+
+: wait-bsy-		( -- )
+	['] (wait-bsy-) (timeout) abort" timed out waiting for BSY=0"
+;
+
+: wait-bsy-drq-	( -- )
+	['] (wait-bsy-drq-) (timeout) abort" timed out waiting for BSY=0, DRQ=0"
+;
+
+: select		( dev# -- )
+	wait-bsy-drq-
+	4 << d/h rb!
+	1 us
+	wait-bsy-drq-
+;
+
+: soft-reset	( -- )
+	5 us
+	6 dctl rb!
+	5 us
+	2 dctl rb!
+	5 ms
+	d# 45 to timeout-secs
+	wait-bsy-
+	d# 5 to timeout-secs
+	10 us
+;
+
+
+: check-error		( -- )
+	asts rb@ drop
+	sts rb@ err and abort" drive returned error"
+;
+
+: check-error-df	( -- )
+	asts rb@ drop
+	sts rb@ err _df or and abort" drive returned error"
+;
+
+: (wait-drive-ready)		( -- done? )
+	sts rb@ dup bsy and 0= if
+		drq and 0= if
+			abort" drive returned error"
+		else
+			true
+		then
+	else
+		drop false
+	then
+;
+
+: pio-prepare		( -- )
+	1 us asts rb@ drop
+	['] (wait-drive-ready) (timeout) abort" timed out waiting for drive"
+;
+
+: pio-execute		( in? -- )
+	if
+		read-pio
+	else
+		write-pio
+	then
+	check-error
+;
+
+: do-pio-command	( in? -- )
+	pio-prepare
+	pio-execute
+;
+
+: pio-overrun		( #bytes in? -- )
+	if
+		0 ?do
+			data rw@ drop
+		loop
+	else
+		0 ?do
+			0 data rw!
+		loop
+	then
+;
+
+: do-dma-command	( in? -- )
+	abort" cannot do DMA"
+;
+
+: spin-up		( dev# -- )
+	select
+	07 feat rb!
+	EF cmd rb!
+	['] (wait-bsy-) (timeout) abort" timed out on spin-up"
+;
+
+: identify		( identify-cmd dev# -- )
+	dup select
+	200 to data-len
+	if identify-buf1 else identify-buf0 then to data-buf
+	cmd rb!
+	true do-pio-command
+;
+
+\ Determine the device type of the given device from its signature
+: ((probe-dev))	( dev# -- dev-type )
+	4 << d/h rb!
+	wait-bsy-
+	scnt rb@ 1 <> if dt-missing exit then
+	snum rb@ 1 <> if dt-missing exit then
+	cyl.hi rb@ 8 << cyl.lo rb@ or
+	dup atapi-sig = if
+		drop dt-atapi
+	else
+		if dt-missing else dt-ata then
+	then
+;
+
+: (probe-dev)		( dev# -- dev-type )
+	>r r@ ((probe-dev)) dup dt-missing = if r> drop exit then
+	
+	r@ spin-up
+	dup dt-atapi = if A1 else EC then r@ identify
+	
+	data-buf 2 wa+ w@-le 40 and if
+		drop dt-missing
+	else
+		new-device
+		dup dt-atapi = if " /packages/atapi-disk" else " /packages/ata-disk" then " chain" eval
+		data-buf " init" my-self $call-method
+		r@ encode-int " reg" property
+		finish-device
+	then
+	
+	r> drop
+;
+
+\ Determine the device type of the given device,
+\  create the child node, and send an IDENTIFY[-PACKET]-DEVICE
+: probe-dev			( dev# -- dev-type )
+	['] (probe-dev) catch if
+		drop dt-missing
+	then
+;
+
+\ Send a SET TRANSFER MODE command
+: (set-dev-xfr-mode)	( mode-param dev# -- )
+	select					\ We use a technique known as "rabid selection"!
+	03 feat rb!
+	scnt rb!
+	EF cmd rb!
+	wait-bsy-
+	check-error-df
+;
+
+\ Set the transfer mode for the given device
+: set-dev-xfr-mode		( mode dev# -- )
+	over 8 >> ?dup if over (set-dev-xfr-mode) then
+	FF and (set-dev-xfr-mode)
+;
+
+\ Return whether the given device is set up for DMA
+: dma?					( dev# -- dma-enabled? )
+	if dev1-mode else dev0-mode then
+	8 >> 0<>
+;
+
+: (ata-r/w-blocks)		( addr block# #blocks dev# in? -- #read/written )
+	>r >r
+	r@ select
+	tuck scnt rb!				( addr #blocks block#  R: in? dev# )
+	dup FF and snum rb!
+	dup 8 >> FF and cyl.lo rb!
+	dup 10 >> FF and cyl.hi rb!
+	18 >> F and r@ 4 << or 40 or d/h rb!
+	swap to data-buf			( #blocks  R: in? dev# )
+	r> dma? if
+		dup 9 << to data-len
+		r@ if C8 else CA then cmd rb!
+		r> ['] do-dma-command catch if
+			2drop 0
+		then
+	else
+		200 to data-len
+		r@ if 20 else 30 then cmd rb!
+		r> over
+		0 ?do					( #blocks in? )
+			dup ['] do-pio-command catch if
+				3drop i unloop exit
+			then
+			data-buf 200 + to data-buf
+		loop drop
+	then
+;
+
+: (atapi-send-packet)	( pkt-addr pkt-len buf-addr buf-len dma? in? dev# -- actual-bytes )
+	select >r						( pkt-a pkt-l buf-a buf-l dma?  R: in? )
+	drop
+	0 feat rb!						( pkt-a pkt-l buf-a buf-l  R: in? )
+	dup 8000 max					( pkt-a pkt-l buf-a buf-l bc-limit  R: in? )
+	dup cyl.lo rb!
+	8 >> cyl.hi rb!
+	2swap to data-len to data-buf
+	A0 cmd rb!
+	false do-pio-command				( buf-a buf-l  R: in? )
+	dup 0= if
+		2drop r> drop 0
+	else
+		swap to data-buf dup
+
+		begin
+			dup
+		while
+			pio-prepare
+			
+			dup cyl.hi rb@ 8 << cyl.lo rb@ or 	( orig rem rem bc )
+			tuck min							( orig rem bc act )
+			dup to data-len						( orig rem bc act )
+
+			r@ pio-execute
+
+			tuck - r@ pio-overrun				( orig rem act )
+			dup data-buf + to data-buf
+			-			
+		repeat
+		drop r> drop
+	then
+;
+
+external
+
+
+false value probed?
+
+: probe			( -- )
+	cr ." probing ATA"
+	soft-reset
+	0 baboon-pio-timing timing rw!
+	0 probe-dev to dev0
+	1 probe-dev to dev1
+	dev0 dev1 or if
+		config-timing
+		dev0 if
+			dev0-mode 0 set-dev-xfr-mode
+		then
+		dev1 if
+			dev1-mode 1 set-dev-xfr-mode
+		then
+	then
+	true to probed?
+;
+
+: open			( -- okay? )
+	probed? not if
+		probe
+	then
+	true
+;
+
+: close			( -- )
+
+;
+
+: encode-unit	( n -- addr len )
+	(u.)
+;
+
+: decode-unit	( addr len -- n )
+	$number if 0 then
+;
+
+: ata-r/w-blocks	( -- )
+	(ata-r/w-blocks)
+;
+
+: atapi-send-packet	( pkt-addr pkt-len buf-addr buf-len dma? in? dev# -- actual-bytes )
+	(atapi-send-packet)
+;
+
+: identify-device	( dev# -- buf )
+	dup if dev1 else dev0 then
+	dup dt-missing = if
+		abort" no such device"
+	then
+	dt-atapi = if A1 else EC then swap identify
+	data-buf
+;
+
+fcode-end

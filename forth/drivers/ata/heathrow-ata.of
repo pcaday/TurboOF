@@ -1,0 +1,647 @@
+" ata" device-name
+" heathrow-ata" encode-string " compatible" property
+
+1 encode-int " #address-cells" property
+0 encode-int " #size-cells" property
+
+
+: rl@	xl@ lbflip ;
+: rl!	>r lbflip r> xl! ;
+: rw@	xw@ wbflip ;
+: rw!	>r wbflip r> xw! ;
+alias rb@ xb@
+alias rb! xb!
+
+: virt->real 		( virt -- phys )
+	virt_base - real_base +
+;
+
+
+headers
+
+: w@-be		dup 1+ c@ swap c@ bwjoin ;
+: w@-le		dup c@ swap 1+ c@ bwjoin ;
+: w!-be		>r wbsplit r@ c! r> 1+ c! ;
+: w!-le		>r wbsplit r@ 1+ c! r> c! ;
+: 3c@-be	>r r@ c@ 10 << r@ 1+ c@ 8 << r> 2+ c@ or or ;
+: 3c@-le	>r r@ c@ 2+ 10 << r@ 1+ c@ 8 << r> c@ or or ;
+: 3c!-be	>r dup 10 >> r@ c! dup 8 >> FF and r@ 1+ c! FF and r> 2+ c! ;
+: 3c!-le	>r dup 10 >> r@ 2+ c! dup 8 >> FF and r@ 1+ c! FF and r> c! ;
+: l@-be		>r r@ 3 + c@ r@ 2+ c@ r@ 1+ c@ r> c@ bljoin ;
+: l@-le		>r r@ c@ r@ 1+ c@ r@ 2+ c@ r> 3 + c@ bljoin ;
+: l!-be		>r lbsplit r@ c! r@ 1+ c! r@ 2+ c! r> 3 + c! ;
+: l!-le		>r lbsplit r@ 3 + c! r@ 2+ c! r@ 1+ c! r> c! ;
+
+
+F3021000 constant my-address
+
+my-address 10 + constant feat
+my-address 10 + constant err
+my-address 20 + constant scnt
+my-address 30 + constant snum
+my-address 40 + constant cyl.lo
+my-address 50 + constant cyl.hi
+my-address 60 + constant d/h
+my-address 70 + constant cmd
+my-address 70 + constant sts
+my-address 160 + constant dctl
+my-address 160 + constant asts
+
+my-address 0 + value data
+
+my-address 200 + constant timing
+
+
+( ==== )
+EB14 constant atapi-sig
+
+80 constant bsy
+40 constant drdy
+20 constant _df
+8 constant drq
+1 constant err
+( ==== )
+8 constant pio-mode
+20 constant mwdma-mode
+40 constant udma-mode
+
+0 value dev0-mode
+0 value dev1-mode
+( ==== )
+0 constant dt-missing
+1 constant dt-ata
+2 constant dt-atapi
+
+0 value dev0
+0 value dev1
+( ==== )
+200 buffer: identify-buf0
+200 buffer: identify-buf1
+( ==== )
+0 value data-buf
+0 value data-len
+( ==== )
+
+code (read-ata-pio-be)
+809F0000 l,
+807F0004 l,
+5485F0BE l,
+3863FFFC l,
+7CA903A6 l,
+548407BF l,
+A0DD0000 l,
+7C0006AC l,
+A0FD0000 l,
+7C0006AC l,
+50C7801E l,
+A11D0000 l,
+90E30004 l,
+7C0006AC l,
+A13D0000 l,
+5109801E l,
+7C0006AC l,
+95230008 l,
+4200FFD0 l,
+4182001C l,
+38630002 l,
+7C8903A6 l,
+A0DD0000 l,
+B4C30002 l,
+7C0006AC l,
+4200FFF4 l,
+83BF0008 l,
+3BFF000C l,
+4E800020 l,
+end-code
+
+code (write-ata-pio-be)
+809F0000 l,
+807F0004 l,
+5485F0BE l,
+3863FFFE l,
+7CA903A6 l,
+548407BF l,
+A0C30002 l,
+A0E30004 l,
+B0DD0000 l,
+7C0006AC l,
+A1030006 l,
+B0FD0000 l,
+7C0006AC l,
+A5230008 l,
+B11D0000 l,
+7C0006AC l,
+B13D0000 l,
+7C0006AC l,
+4200FFD0 l,
+41820018 l,
+7C8903A6 l,
+A4C30002 l,
+B0DD0000 l,
+7C0006AC l,
+4200FFF4 l,
+83BF0008 l,
+3BFF000C l,
+4E800020 l,
+end-code
+
+code dcbf-it!
+807F0000 l,
+7C83EA14 l,
+3884001F l,
+54840034 l,
+54630034 l,
+7C832050 l,
+5484D97E l,
+7C8903A6 l,
+7C0018AC l,
+38630020 l,
+4200FFF8 l,
+83BF0004 l,
+3BFF0008 l,
+4E800020 l,
+end-code
+
+
+: read-pio		( -- )
+	data-buf data-len 1+ 1 >> data (read-ata-pio-be)
+;
+
+: write-pio		( -- )
+	data-buf data-len 1+ 1 >> data (write-ata-pio-be)
+;
+
+5 value timeout-secs
+: (timeout)		( xt -- timed-out? )
+	>r get-msecs timeout-secs d# 1000 * +
+	begin
+		r@ execute if
+			r> 2drop false exit
+		then
+		get-msecs over u>=
+		1 us
+	until
+	r> 2drop true
+;
+
+
+0 value dma-io-buffer-mem
+0 value dma-io-buffer
+false value dma-in?
+
+here F and 10 swap - F and allot here
+0 l, 0 l, 0 l, 0 l,
+70 l, 0 l, 0 l, 0 l,
+constant dbdma-program
+
+F3008C00 constant dbdma-channel
+
+: dbdma-control-set-bits	dup 10 << or dbdma-channel rl! ;		( val -- )
+: dbdma-control-clear-bits	10 << dbdma-channel rl! ;				( val -- )
+
+: (wait-dbdma-inactive)		dbdma-channel 4 + rl@ 400 and 0= ;	( -- inactive? )
+
+: wait-dbdma-inactive			( -- )
+	['] (wait-dbdma-inactive) (timeout) if
+		FC00 dbdma-control-clear-bits
+		abort" DMA hung"
+	then
+;
+
+: start-dma		( in? -- okay? )
+	to dma-in?
+
+	data-len FFF + alloc-mem dup to dma-io-buffer-mem
+	FFF + FFFFF000 and to dma-io-buffer
+	
+	dma-in? not if
+		data-buf dma-io-buffer data-len move
+	then
+	
+	dma-io-buffer data-len dcbf-it!
+
+	dma-in? if 20000000 else 0 then data-len or dbdma-program rl!
+	dma-io-buffer virt->real dbdma-program 4 + rl!
+	dbdma-program 20 dcbf-it!
+	
+	FF000000 dbdma-channel 10 + rl!
+	FC00 dbdma-control-clear-bits
+	0 dbdma-channel 8 + rl!
+	dbdma-program virt->real dbdma-channel C + rl!
+	9000 dbdma-control-set-bits
+;
+
+: stop-dma		( error? -- error? )
+	wait-dbdma-inactive
+	
+	dbdma-channel 4 + rl@ 800 and abort" DMA error"
+	
+	8000 dbdma-control-clear-bits
+	2000 dbdma-control-set-bits
+	wait-dbdma-inactive
+
+	dma-in? if	
+		dma-io-buffer data-buf data-len move
+	then
+	
+	dma-io-buffer-mem data-len FFF + free-mem
+;
+
+
+\ Searches MSB to LSB for the first 1 bit in its argument. Returns
+\  its bit position, where LSB = 0. If its argument is zero, returns -1.
+: first-bit				( n -- u )
+	/n 3 << 0 ?do
+		dup 80000000 and if
+			drop /n 3 << 1- i - unloop exit
+		then
+		1 <<
+	loop
+	drop -1
+;
+
+\ Retrieve device's maximum modes and minimum cycle timings (in ns),
+\  if present, from the identify information. If device does not
+\  support UDMA, max-ultra is -1; if device does not support
+\  MWDMA, max-mw is -1. If device does not have timing info, uses
+\  the minimum timings from the ATA specification. UDMA timing always
+\  comes from the ATA specification.
+: get-device-modes		( identify-buf -- max-ultra max-mw mw-timing max-pio pio-timing )
+	>r
+	r@ d# 53 wa+ w@-le dup 4 and if
+		r@ d# 88 wa+ w@-le 1F and first-bit
+	else
+		-1
+	then
+	r@ d# 63 wa+ w@-le 7 and first-bit
+	rot 2 and if
+		r@ d# 66 wa+ w@-le		
+		r@ d# 64 wa+ w@-le 3 and first-bit 3 +			\ PIO 2, 3, or 4
+		r@ d# 49 wa+ w@-le 0800 and if d# 68 else d# 67 then
+		r@ swap wa+ w@-le
+	else
+		0
+		r@ d# 51 wa+ w@-le 8 >>
+		0
+	then
+	r> drop
+	?dup 0= if
+		dup case
+			0 of d# 600 endof
+			1 of d# 383 endof
+			2 of d# 240 endof
+			3 of d# 180 endof
+			4 of d# 120 endof
+			0 swap
+		endcase
+	then
+	>r >r ?dup 0= if
+		dup case
+			0 of d# 480 endof
+			1 of d# 150 endof
+			2 of d# 120 endof
+			0 swap
+		endcase
+	then r> r>
+;
+
+
+0 value pio-timing
+0 value max-pio
+0 value mw-timing
+0 value max-mw
+
+: timing!			( timing-value -- )
+	timing rl!
+;
+
+: heathrow-pio-timing		( -- )
+	pio-timing
+	dup d# 600 > if drop 400 exit then
+	dup d# 383 > if drop 526 exit then
+	dup d# 360 > if drop 85 exit then
+	d# 300 > if 45 exit then
+	25
+;
+
+: heathrow-mw-timing		( -- )
+	mw-timing
+	dup d# 480 > if drop 0 exit then
+	dup d# 360 > if drop 74000 exit then
+	dup d# 270 > if drop 53000 exit then
+	dup d# 240 > if drop 242000 exit then
+	dup d# 210 > if drop 32000 exit then
+	dup d# 180 > if drop 231800 exit then
+	dup d# 150 > if drop 21800 exit then
+	d# 120 > if 221000 exit then
+	211000
+;
+
+\ Configures HBA timings, determines the transfer mode for each device, storing
+\  the results in dev0-mode and dev1-mode.
+: config-timing		( -- )
+	dev0 if
+		identify-buf0 get-device-modes
+	else
+		0 FFFF 0 FFFF 0
+	then
+	to pio-timing to max-pio to mw-timing to max-mw drop
+
+	dev1 if	
+		identify-buf1 get-device-modes
+		pio-timing max to pio-timing
+		max-pio min to max-pio
+		mw-timing max to mw-timing
+		max-mw min to max-mw
+		drop
+	then
+	
+	max-pio pio-mode or
+	max-mw -1 <> if
+		max-mw mwdma-mode or 8 << or
+	then
+	dup to dev0-mode to dev1-mode
+	
+	heathrow-pio-timing heathrow-mw-timing or timing!
+;
+
+( ==== )
+
+: (wait-bsy-)		sts rb@ bsy and 0= ;			( -- done? )
+: (wait-bsy-drq-)	sts rb@ bsy drq or and 0= ;		( -- done? )
+: (wait-err-)		sts rb@ err and 0= ;			( -- done? )
+
+: wait-bsy-		( -- )
+	['] (wait-bsy-) (timeout) abort" timed out waiting for BSY=0"
+;
+
+: wait-bsy-drq-	( -- )
+	['] (wait-bsy-drq-) (timeout) abort" timed out waiting for BSY=0, DRQ=0"
+;
+
+: select		( dev# -- )
+	wait-bsy-drq-
+	4 << d/h rb!
+	1 us
+	wait-bsy-drq-
+;
+
+: soft-reset	( -- )
+	5 us
+	6 dctl rb!
+	5 us
+	2 dctl rb!
+	5 ms
+	d# 45 to timeout-secs
+	wait-bsy-
+	d# 5 to timeout-secs
+;
+
+
+: check-error		( -- )
+	asts rb@ drop
+	sts rb@ err and abort" drive returned error"
+;
+
+: check-error-df	( -- )
+	asts rb@ drop
+	sts rb@ err _df or and abort" drive returned error"
+;
+
+: (wait-drive-ready)		( -- done? )
+	sts rb@ dup bsy and 0= if
+		drq and 0= if
+			abort" drive returned error"
+		else
+			true
+		then
+	else
+		drop false
+	then
+;
+
+: do-pio-command	( in? -- )
+	1 us
+	asts rb@ drop
+	['] (wait-drive-ready) (timeout) abort" timed out waiting for drive"
+	if
+		read-pio
+	else
+		write-pio
+	then
+	check-error
+;
+
+: do-dma-command	( in? -- )
+	1 us
+	start-dma
+	['] (wait-bsy-drq-) (timeout)
+	stop-dma
+	abort" timed out on DMA transfer"
+	check-error
+;
+
+: spin-up		( dev# -- )
+	select
+	07 feat rb!
+	EF cmd rb!
+	['] (wait-bsy-) (timeout) abort" timed out on spin-up"
+;
+
+: identify		( identify-cmd dev# -- )
+	dup select
+	200 to data-len
+	if identify-buf1 else identify-buf0 then to data-buf
+	cmd rb!
+	true do-pio-command
+;
+
+\ Determine the device type of the given device from its signature
+: ((probe-dev))	( dev# -- dev-type )
+	4 << d/h rb!
+	wait-bsy-
+	scnt rb@ 1 <> if dt-missing exit then
+	snum rb@ 1 <> if dt-missing exit then
+	cyl.hi rb@ 8 << cyl.lo rb@ or
+	dup atapi-sig = if
+		drop dt-atapi
+	else
+		if dt-missing else dt-ata then
+	then
+;
+
+: (probe-dev)		( dev# -- dev-type )
+	>r r@ ((probe-dev)) dup dt-missing = if r> drop exit then
+	
+	r@ spin-up
+	dup dt-atapi = if A1 else EC then r@ identify
+	
+	data-buf 2 wa+ w@-le 40 and if
+		drop dt-missing
+	else
+		new-device
+		dup dt-atapi = if " /packages/atapi-disk" else " /packages/ata-disk" then
+		$chain
+		data-buf " init" my-self $call-method
+		r@ encode-int " reg" property
+		finish-device
+	then
+	
+	r> drop
+;
+
+\ Determine the device type of the given device,
+\  create the child node, and send an IDENTIFY[-PACKET]-DEVICE
+: probe-dev			( dev# -- dev-type )
+	['] (probe-dev) catch if
+		drop dt-missing
+	then
+;
+
+\ Send a SET TRANSFER MODE command
+: (set-dev-xfr-mode)	( mode-param dev# -- )
+	select					\ We use a technique known as "rabid selection"!
+	03 feat rb!
+	scnt rb!
+	EF cmd rb!
+	wait-bsy-
+	check-error-df
+;
+
+\ Set the transfer mode for the given device
+: set-dev-xfr-mode		( mode dev# -- )
+	over 8 >> ?dup if over (set-dev-xfr-mode) then
+	FF and (set-dev-xfr-mode)
+;
+
+\ Return whether the given device is set up for DMA
+: dma?					( dev# -- dma-enabled? )
+	if dev1-mode else dev0-mode then
+	8 >> 0<>
+;
+
+: (ata-r/w-blocks)		( addr block# #blocks dev# in? -- #read/written )
+	>r >r
+	r@ select
+	tuck scnt rb!				( addr #blocks block#  R: in? dev# )
+	dup FF and snum rb!
+	dup 8 >> FF and cyl.lo rb!
+	dup 10 >> FF and cyl.hi rb!
+	18 >> F and r@ 4 << or 40 or d/h rb!
+	swap to data-buf			( #blocks  R: in? dev# )
+	r> dma? if
+		dup 9 << to data-len
+		r@ if C8 else CA then cmd rb!
+		r> ['] do-dma-command catch if
+			2drop 0
+		then
+	else
+		200 to data-len
+		r@ if 20 else 30 then cmd rb!
+		r> over
+		0 ?do					( #blocks in? )
+			dup ['] do-pio-command catch if
+				3drop i unloop exit
+			then
+			data-buf 200 + to data-buf
+		loop drop
+	then
+;
+
+: (atapi-send-packet)	( pkt-addr pkt-len buf-addr buf-len dma? in? dev# -- actual-bytes )
+	tuck select >r
+	dma? swap 0<> and >r
+	r@ 1 and feat rb!				( pkt-a pkt-l buf-a buf-l  R: in? dma? )
+	dup cyl.lo rb!
+	dup 8 >> cyl.hi rb!
+	2swap to data-len to data-buf
+	A0 cmd rb!
+	false do-pio-command				( buf-a buf-l  R: in? dma? )
+	dup 0= if
+		2drop r> r> 2drop 0
+	else
+		to data-len to data-buf
+		r> if
+			r> do-dma-command
+			data-len
+		else
+			data-len cyl.hi rb@ 8 << cyl.lo rb@ or min
+			dup to data-len
+			r> do-pio-command
+		then
+	then
+;
+
+external
+
+
+false value probed?
+
+: probe			( -- )
+	soft-reset
+	0 probe-dev to dev0
+	1 probe-dev to dev1
+	dev0 dev1 or if
+		config-timing
+		dev0 if
+			dev0-mode 0 set-dev-xfr-mode
+		then
+		dev1 if
+			dev1-mode 1 set-dev-xfr-mode
+		then
+	then
+;
+
+: open			( -- okay? )
+	probed? not if
+		74526 timing!
+		probe
+	then
+	true
+;
+
+: close			( -- )
+
+;
+
+: encode-unit	( n -- addr len )
+	(u.)
+;
+
+: decode-unit	( addr len -- n )
+	$number if 0 then
+;
+
+: ata-r/w-blocks	( -- )
+	(ata-r/w-blocks)
+;
+
+: atapi-send-packet	( pkt-addr pkt-len buf-addr buf-len dma? in? dev# -- actual-bytes )
+	(atapi-send-packet)
+;
+
+
+
+( ==== debug ==== )
+
+: gw0		identify-buf0 swap wa+ w@-le . ;
+: gw1		identify-buf1 swap wa+ w@-le . ;
+
+2000 buffer: sectors
+
+: fss
+	sectors 800 0 ?do
+		i over !
+		cell+
+	loop drop
+;
+
+: ess
+	sectors 2000 erase
+;
+
+create read-cmd
+8 c, 0 c, 0 c, 0 c, 1 c, 0 c, 0 w, 0 l, 0 l,
+
+create read10-cmd
+28 c, 0 c, 0 c, 0 c, 0 c, 0 c, 0 c, 0 c, 1 c, 0 c, 0 w, 0 l,

@@ -1,0 +1,21 @@
+: cpeek		['] xb@ catch if drop false else true then ;
+: wpeek		['] xw@ catch if drop false else true then ;
+: lpeek		['] xl@ catch if drop false else true then ;
+: cpoke		['] xb! catch 0= ;
+: wpoke		['] xw! catch 0= ;
+: lpoke		['] xl! catch 0= ;
+
+: in-ram?		( addr len -- is-ram? )
+	mem-existing
+	mem-#existing 2* cells bounds ?do
+		swapdup i @-be -
+		i cell+ @-be
+		2dup u< >r swap - u<= r> and
+		if unloop 2drop true exit then
+	2 cells +loop
+	2drop false
+;
+
+: in-of-mem?		( addr -- in-of? )
+	virt_base - virt_size u<
+;

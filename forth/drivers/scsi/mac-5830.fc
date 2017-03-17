@@ -1,0 +1,17 @@
+fcode-version2
+hex
+
+" 5830" device-name
+
+my-space 6000 + 2000 " map-in" $call-parent constant data-drq
+my-space 10000 + 80 " map-in" $call-parent constant reg-base
+my-space 12000 + 2000 " map-in" $call-parent constant data-no-drq
+
+reg-base encode-int " AAPL,address" property
+
+my-space 10000 + encode-int 80 encode-int encode+
+my-space 12000 + encode-int encode+ 2000 encode-int encode+
+my-space 6000 + encode-int encode+ 2000 encode-int encode+
+" reg" property
+
+fcode-end

@@ -1,0 +1,49 @@
+fcode-version2
+hex
+
+external
+
+" mouse" encode-string
+2dup " name" property
+" device_type" property
+
+8 buffer: response
+
+: (read-reg)	tokenizer[ 607 emit-byte ]tokenizer " read-reg" ;
+: read-reg		my-unit (read-reg) ;
+
+: probe		( -- )
+	" reg" get-my-property throw
+	decode-int >r
+	response 2 3 r@ (read-reg) 2 < throw
+	response 1+ c@
+	case
+		1 of
+			d# 100 1
+		endof
+		2 of
+			d# 200 1
+		endof
+		4 of
+			response 8 1 r@ (read-reg) 8 = if
+				response 2+ w@ response 7 + c@
+			else
+				d# 100 1
+			then
+		endof
+		>r d# 100 1 r>
+	endcase
+	encode-int " #buttons" property
+	encode-int " dpi" property
+	2drop r> drop
+;
+
+
+: get-event		( timeout -- dx dy buttons true | false )
+
+;
+
+: open	true ;
+: close	;
+
+fcode-end

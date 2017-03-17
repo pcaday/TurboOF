@@ -1,0 +1,343 @@
+0 value see-pack
+variable see-indent
+10 constant see-scells
+see-scells cells buffer: see-stack
+variable see-sptr
+variable see-crflag
+variable see-done
+variable see-#do
+
+: ((~.))		<# bl hold u#s [char] ~ hold u#> ;
+: (~.)			/cells 1- see-#do @ - ((~.)) ;
+
+: ((see-cr))	cr exit? if abort then see-indent @ 0 max 1+ 0 ?do tab loop ;
+: (see-cr)		see-crflag on ;
+: (see-cr+)		1 see-indent +! (see-cr) ;
+: (see-cr-)		-1 see-indent +! (see-cr) ;
+: see-type		dup #out @ + 1+ #columns >= see-crflag @ or if ((see-cr)) see-crflag off then type ;
+
+: >ss
+	see-sptr _1! _1@ @ _2!
+	[ see-stack see-scells 1- cells + ] literal _2@ u< if true abort"  too much recursion" then
+	_2@ ! _2@ cell+ _1@ !
+;
+
+: ss>
+	see-sptr _1! _1@ @ cell- _2!
+	_2@ [ see-stack ] literal u< if true abort"  parsing error" then
+	_2@ _1@ ! _2@ @
+;
+
+: ss@
+	see-sptr _1! _1@ [ see-stack ] literal = if
+		BEEFCAFE
+	else
+		_1@ @ cell- @
+	then
+;
+
+: ss-clear		see-stack see-sptr ! ;
+
+: (who-unknown)		0 0 see-type [char] ^ emit .cell ;
+
+: (who)
+	>r r@ d>len c@ 0= if
+		r> d>interp @ (who-unknown) exit
+	then
+	
+	r@ d>pack @ dup see-pack <> and if
+		r@ d>pack @ >r 0 0 see-type
+		[char] [ emit
+		"name" r> get-package-property not if 1- type then
+		[char] ] emit
+	then r@ d>name r> d>len c@ see-type
+;
+
+: who					( xt -- )
+	xt>d dup -2 = if 1+ then
+	case
+		-1 of " postpone " see-type (who) endof
+		0 of (who-unknown) endof
+		1 of (who) endof
+	endcase
+;
+
+: execute-d				( d -- d ??? )
+	dup d>interp @ execute
+;
+
+: (ignore-decompile)
+	F6 and 2 <> if drop then
+;
+
+: ((see-literal+))
+	true swap case
+		['] (value-to) of true endof
+		['] (is) of true endof
+		['] (instance-to) of true endof
+		['] (2value-to) of true endof
+		['] (instance-2to) of true endof
+		['] (register-to) of true endof
+		['] compile, of " compile " see-type false endof
+		>r drop false false r>
+	endcase
+	if
+		" to " see-type
+	then
+;
+
+: ((see-literal))	( addr n -- addr' )
+	swapdup - [ /literal /branch + ] literal = if
+		over decompile dup dec.lit = if
+			drop >r swap r> 0 0 see-type [char] " emit space type [char] " emit space
+			nip decompile dup dec.br = if
+				drop nip
+			else
+				(ignore-decompile)
+			then exit
+		then
+		(ignore-decompile) drop
+	then
+	xt>d if
+		over decompile dup dec.call = if
+			drop ((see-literal+)) >r r@ if
+				>r nip r> swap
+			else
+				drop
+			then
+		else
+			(ignore-decompile) drop
+			false >r
+		then
+		r@ 0= if " ['] " see-type then
+		(who) r> if (see-cr) else space then exit
+	else
+		over decompile dup dec.call = if
+			drop case						( addr n addr' xt )
+				['] (locals-;) of 2drop see-done on exit endof
+				['] (locals-exit) of " exit " see-type chunk exit endof
+				['] (locals-does>) of (see-cr) " does> " see-type chunk exit endof
+				['] (local@) of swap (~.) see-type nip exit endof
+				['] (local-to) of " to " see-type swap (~.) see-type nip exit endof
+				nip
+			endcase
+		else
+			(ignore-decompile) drop
+		then
+	then
+	0 0 see-type .
+;
+
+: ((see-do))	(see-cr+) nip decompile> 2 see-#do +! ;
+: ((see-loop))	decompile> decompile> (see-cr-) -2 see-#do +! ;
+
+: ((see-call))		( addr xt -- addr )
+	case
+		['] 2>r of
+			dup decompile case
+				dec.call of
+					['] (?do) = if
+						" ?do" see-type ((see-do)) exit
+					then
+				endof
+				dec.br of
+					drop decompile dup dec.call = if
+						drop ['] (?do) = if
+							" do" see-type ((see-do)) exit
+						then
+					else
+						(ignore-decompile)
+					then
+				endof
+				(ignore-decompile) false
+			endcase
+			drop " 2>r " see-type
+		endof
+		['] (loop) of ((see-loop)) " loop " see-type endof
+		['] (+loop) of ((see-loop)) " +loop " see-type endof
+		['] (does>) of (see-cr) " does> " see-type endof
+		['] (case) of " case" see-type (see-cr+) endof
+		['] (endcase) of (see-cr-) " endcase" see-type (see-cr) endof
+		['] (of) of decompile> decompile> " of" see-type (see-cr+) endof
+		
+		locals>-tab max-locals 0 ?do	( addr xt l>t-ptr )
+			2dup @ = if
+				(see-cr) " { " see-type
+				i 1+ 0 do
+					i ((~.)) see-type
+				loop
+				" }" see-type (see-cr) 2drop unloop exit
+			then
+			cell+
+		loop drop
+		
+		dup who space
+	endcase
+;
+
+: ((see-br))		( addr target -- addr )
+	2dup = if
+		drop (see-cr) " begin" see-type (see-cr+) exit
+	then
+	
+	dup /compile - /branch - decompile dup dec.call = if
+		drop nip dup ['] (loop) = swap ['] (+loop) = or if
+			" leave " see-type drop exit
+		then
+	else
+		(ignore-decompile) drop 
+	then
+	
+	dup /compile - decompile dup dec.call = if
+		drop nip ['] (endcase) = if
+			(see-cr-) " endof" see-type (see-cr) drop exit
+		then
+	else
+		(ignore-decompile) drop
+	then
+	
+	over ss@ = if
+		ss> drop (see-cr-) 2dup u< if
+			" else" see-type (see-cr+) >ss
+		else
+			" repeat" see-type (see-cr) drop
+		then
+	else
+		2dup u< if
+			(see-cr-) " ahead" see-type (see-cr+)
+		else
+			(see-cr-) " again" see-type (see-cr)
+		then drop
+	then	
+;
+
+: ((see-fbr))		( addr target -- addr )
+	2dup u< if
+		dup >ss
+		/branch - decompile dup dec.br = if
+			drop u> if
+				(see-cr-) " while" see-type (see-cr+) exit
+			then
+		else
+			(ignore-decompile) drop
+		then " if" see-type (see-cr+)
+	else
+		drop (see-cr-) " until" see-type (see-cr)
+	then
+;
+
+
+: ((see-tbr))		( addr target -- addr )
+	drop " ?leave " see-type
+;
+
+
+: ((see))			( addr -- )
+	(see-cr)
+	see-#do off
+	see-done off
+	begin
+		decompile case
+			dec.call of ((see-call)) endof
+			dec.lit of ((see-literal)) endof
+			dec.epi of see-done on endof
+			dec.br of ((see-br)) endof
+			dec.f-br of ((see-fbr)) endof
+			dec.t-br of ((see-tbr)) endof
+		endcase
+		begin
+			dup ss@ =
+		while
+			ss> drop (see-cr-) " then" see-type (see-cr)
+		repeat
+		see-done @
+	until
+
+	drop #out @ if cr then [char] ; emit
+;
+
+: (see)
+	recursive
+	cr see-indent off see-crflag off
+	ss-clear
+	xt>d 0= if
+		dup decompile dup
+		dec.pro = >r (ignore-decompile) drop r> if
+			0 to see-pack
+			." : ^" dup .cell
+			((see))
+		else
+			." cannot decompile xt " .cell
+		then
+		exit
+	then
+	dup d>pack @ to see-pack
+	dup d>type c@
+	dup tinv and if ." word is incomplete" exit then
+	dup timmed and if ." immediate " then
+	dup tinst and if ." instance " then
+	[ timmed not ] literal and
+	case								( dentry )
+		tstd of
+			." : " dup (who)
+			dup d>interp @ dup ((see))
+			swap d>comp @ dup 0= if
+				2drop
+			else
+				tuck = if drop else ." >compile" ((see)) then
+			then	
+		endof
+		tcreate of
+			." create " dup (who)
+			d>interp @ decompile> decompile
+			dup dec.br = if
+				drop ."  does>" ((see))
+			else
+				(ignore-decompile)
+			then
+			drop
+		endof
+		tcode of
+			." code " (who)
+		endof
+		tvalue of
+			execute-d . ." value " (who)
+		endof
+		tconst of
+			execute-d . ." constant " (who)
+		endof
+		tdefer of
+			." defer " dup (who) ."  is"
+			d>interp @ dup behavior
+			tuck = if
+				."  itself" drop
+			else
+				(see)
+			then
+		endof
+		tfield of
+			dup d>interp @ >body @ . ." field " (who)
+		endof
+		t2value of
+			execute-d swap . . ." 2value " (who)
+		endof
+		[ tcreate tinst or ] literal of
+			." create " (who)
+		endof
+		[ tvalue tinst or ] literal of
+			." value " (who)
+		endof
+		[ tdefer tinst or ] literal of
+			." defer " (who)
+		endof
+		[ t2value tinst or ] literal of
+			." 2value " (who)
+		endof
+		treg of
+			." register " (who)
+		endof
+		." unknown word type" drop
+	endcase
+;
+
+: see		(') (see) ;

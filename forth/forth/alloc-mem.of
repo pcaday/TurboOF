@@ -1,0 +1,102 @@
+am-base cell- dup constant free-list
+dup cell- value top off
+
+: unused	top here - ;
+
+: 2aligned	[ /n 2* 1- ] literal + [ /n 2* negate ] literal and ;
+
+: alloc-mem
+	2aligned >r 0 free-list
+	begin
+		nip dup @ dup
+	while
+		dup cell+ @ r@ u>=
+	until
+		dup cell+ @ r@ = if
+			rdrop tuck @ swap !
+		else
+			nip dup cell+ dup @ r> - >r r@ swap ! r> +
+		then
+	else
+		2drop top r> - dup here u< if -82 throw then
+		dup to top
+	then
+;
+
+: free-mem
+	2aligned over top = if
+		+ to top
+
+		0 free-list begin
+			nip dup @ dup
+		while
+			dup top u<=
+		until
+			dup cell+ @ + to top off
+		else
+			2drop
+		then
+	else
+		0 0 free-list begin
+			chip dup @ dup
+		while
+			dup 5 pick u<
+		repeat-until
+
+		dup if
+			dup dup cell+ @ + 5 pick u>=
+		else 0 then >r >r >r >r
+		2dup + 1 rpick u>=
+		if
+			2 rpick if
+				2drop r> r> dup cell+ @ +
+				r> tuck - over cell+ !
+			else
+				drop dup r> !
+				r> dup cell+ @ + over -
+				over cell+ ! r>
+			then
+			swap ! rdrop
+		else
+			rdrop r> r> r> if
+				2swap + over -
+				swap cell+ ! drop
+			else
+				2swap over cell+ !
+				tuck ! swap !
+			then
+		then
+	then
+;
+
+: resize-mem		( addr old-len new-len -- new-addr )
+	2aligned >r 2aligned r>
+	2dup u< if
+		alloc-mem >r
+		2dup r@ swap move
+		free-mem
+		r>
+	else
+		>r r@ -			( addr extra )
+		over r> + swap free-mem
+	then
+;
+
+: alloc-mem-aligned	( size align -- )
+	dup 1 u<= if
+		drop alloc-mem exit
+	then
+	/d max 1- dup 1- or not >r	( size  R: align-mask )
+	top over -
+	r> and				( size addr )
+	dup here u< if -82 throw then
+	top >r dup to top		( size addr  R: old-top )
+	tuck + r> over - free-mem
+;
+
+
+
+: allocate	['] alloc-mem catch ;
+: free		free-mem 0 ;
+
+: dump-free	cr ." top: " top .cell free-list begin @ dup while cr dup .cell space dup cell+ @ u. repeat drop ;

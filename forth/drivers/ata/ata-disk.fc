@@ -1,0 +1,83 @@
+fcode-version2
+hex
+
+" ata-disk" device-name
+
+headers
+
+: w@-be		dup 1+ c@ swap c@ bwjoin ;
+: w@-le		dup c@ swap 1+ c@ bwjoin ;
+: w!-be		>r wbsplit r@ c! r> 1+ c! ;
+: w!-le		>r wbsplit r@ 1+ c! r> c! ;
+: 3c@-be	>r r@ c@ 10 << r@ 1+ c@ 8 << r> 2+ c@ or or ;
+: 3c@-le	>r r@ c@ 2+ 10 << r@ 1+ c@ 8 << r> c@ or or ;
+: 3c!-be	>r dup 10 >> r@ c! dup 8 >> FF and r@ 1+ c! FF and r> 2+ c! ;
+: 3c!-le	>r dup 10 >> r@ 2+ c! dup 8 >> FF and r@ 1+ c! FF and r> c! ;
+: l@-be		>r r@ 3 + c@ r@ 2+ c@ r@ 1+ c@ r> c@ bljoin ;
+: l@-le		>r r@ c@ r@ 1+ c@ r@ 2+ c@ r> 3 + c@ bljoin ;
+: l!-be		>r lbsplit r@ c! r@ 1+ c! r@ 2+ c! r> 3 + c! ;
+: l!-le		>r lbsplit r@ 3 + c! r@ 2+ c! r@ 1+ c! r> c! ;
+
+external
+
+200 constant block-size
+
+( ======== )
+fload ata-dev-common.fci
+( ======== )
+
+
+headers
+
+: r/w-blocks	( addr block# #blocks in? -- #read )
+	>r 
+	over dev-#blocks swap - 0 max min
+	dup 0= if
+		3drop r> drop 0
+	else
+		my-unit r> " ata-r/w-blocks" $call-parent
+	then
+;
+
+external
+
+
+: open			( -- okay? )
+	my-unit " identify-device" $call-parent
+	d# 120 + l@-le to dev-#blocks
+	dev-#blocks 0= if 7FFFFFFF to dev-#blocks then
+
+	init-deblocker 0= if
+		false exit
+	then
+	init-disk-label 0= if
+		deblocker close-package false exit
+	then
+
+	true
+;
+
+: close			( -- )
+	disk-label close-package
+	deblocker close-package
+;
+
+\ Called while this node is still being created. Any modifications of
+\  instance words here become the default for those words.
+: init			( identify-block -- )
+	" ata-disk" device-name
+	" block" device-type
+	drop
+;
+
+C0 100 * constant max-transfer
+
+: read-blocks	( addr block# #blocks -- #read )
+	true r/w-blocks
+;
+
+: write-blocks	( addr block# #blocks -- #written )
+	false r/w-blocks
+;
+
+fcode-end

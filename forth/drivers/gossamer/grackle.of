@@ -1,0 +1,9 @@
+: grackle-config-le		( assumes CHRP address space )
+	A8000080 FEC00000 xl! FEE00000 xl@	( it assumes BE on processor if it's BE )
+	le? if
+		20000000 or
+	else
+		20000000 not and
+	then
+	>r A8000080 FEC00000 xl! r> FEE00000 xl!
+;

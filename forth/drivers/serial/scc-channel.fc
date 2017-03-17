@@ -1,0 +1,290 @@
+fcode-version2
+hex
+external
+
+
+: us		tokenizer[ 600 emit-byte ]tokenizer ;
+
+: rr@		my-unit " rr@" $call-parent ;
+: wr!		my-unit " wr!" $call-parent ;
+
+
+10 constant rx-buf-len
+10 instance buffer: rx-buf
+0 instance value #rx-buf
+true instance value xon?
+
+0 instance value time-constant
+0 instance value clock-div
+0 instance value data-bits
+0 instance value stop-bits
+0 instance value parity
+0 instance value handshake
+
+0 instance value last-wr5
+0 instance value timeout-ms
+
+: init		( -- )
+	my-unit if 40 else 80 then
+	9 wr!			\ Reset channel
+	5 ms
+
+	clock-div 6 << stop-bits 2 << parity or or
+	4 wr!
+	
+	data-bits dup 6 << tuck 3 wr!	( wr3 d-b )
+
+	5 << 82 or dup 5 wr!	( wr3 wr5 )			\ RTS and DTR are initially low
+
+	time-constant dup FF and C wr!
+	8 >> D wr!
+
+	10 0 wr!			\ Reset external/status interrupts
+
+	" wait/req" get-my-property abort" no wait/req" decode-int nip nip
+	E0 and 1 wr!		\ Wait/Request, miscellaneous settings
+	0 6 wr!
+	0 7 wr!
+	0 A wr!
+
+	" clocks" get-my-property abort" no clocks" decode-int nip nip
+	B wr!
+
+	" brg-src" get-my-property abort" no brg-src" decode-int nip nip
+	1 << dup E wr!		\ Set BRG source
+	1 or E wr!			\  then enable BRG
+
+	0 F wr!
+							( wr3 wr5 )
+	8 or dup to last-wr5
+	5 wr!				\ Enable Tx
+	1 or 3 wr!			\ Enable Rx
+;
+
+: clock-freq		( -- n )
+	" clock-frequency" get-my-property abort" no clock-frequency"
+	decode-int nip nip
+;
+
+: clock-/>actual	( clock-divider -- n )
+	dup if
+		3 + 1 swap <<
+	else
+		drop 1
+	then
+;
+
+: calc-timeout		( baud-rate -- timeout-ms )
+	d# 20000 swap / 5 max
+;
+
+: (calc-timing)		( baud-rate clock-divider -- time-constant )
+	clock-freq -rot clock-/>actual * 2* / 2 -
+;
+
+: calc-divider		( baud-rate -- clock-divider )
+	2* clock-freq swap /
+	dup FFFF <= stop-bits 2 <> and if	\ 1.5 stop bits incompatible with x1 clock divider
+		drop 0
+	else	
+		4 >> dup
+		FFFF <= if
+			drop 1
+		else
+			1 >> dup
+			FFFF <= if 2 else 3 then
+		then
+	then		
+;
+
+: calc-timing		( baud-rate -- clock-divider time-constant )
+	dup calc-divider tuck (calc-timing)
+;
+
+: parse-#	( addr len -- n | -1 )
+	dup 0= if
+		2drop -1
+	else
+		base @ >r decimal $number if -1 then r> base !
+	then
+;
+
+: parse-char	( addr len -- c | -1 )
+	1 <> if
+		drop -1
+	else
+		c@
+	then
+;
+
+: parse-args	( addr len -- handshake stop-bits parity data-bits baud-rate )
+	[char] , left-parse-string
+	parse-# >r			\ baud-rate
+
+	[char] , left-parse-string
+	parse-char case
+		[char] 5 of b# 00 endof
+		[char] 6 of b# 10 endof
+		[char] 7 of b# 01 endof
+		[char] 8 of b# 11 endof
+		-1 swap
+	endcase >r			\ data-bits
+
+	[char] , left-parse-string
+	parse-char case
+		[char] n of b# 00 endof
+		[char] e of b# 01 endof
+		[char] o of b# 11 endof
+		-1 swap
+	endcase >r			\ parity
+
+	[char] , left-parse-string
+	parse-char case
+		[char] 1 of b# 01 endof
+		[char] . of b# 10 endof
+		[char] 2 of b# 11 endof
+		-1 swap
+	endcase >r			\ stop-bits
+
+	parse-char case
+		[char] - of b# 00 endof
+		[char] h of b# 01 endof
+		[char] s of b# 10 endof
+		-1 swap
+	endcase				\ handshake
+	r> r> r> r>
+;
+
+: (set-mode)		( addr len -- )
+	parse-args
+	dup 0> if
+		dup calc-timeout to timeout-ms
+		calc-timing to time-constant to clock-div
+	else
+		drop
+	then
+	dup 0>= if to data-bits else drop then
+	dup 0>= if to parity else drop then
+	dup 0>= if to stop-bits else drop then
+	dup 0>= if to handshake else drop then
+;
+
+: set-mode				( addr len -- )
+	(set-mode) init
+;
+
+: set-modem-control		( bitmask -- )
+	3 xor >r
+	last-wr5 7D and
+	r@ 1 and 7 << or		\ DTR
+	r> 2 and or				\ RTS
+	
+	dup to last-wr5 5 wr!
+;
+
+: set-rts			( -- )
+	last-wr5 FD and
+	dup to last-wr5 5 wr!
+;
+
+: supported			( -- )
+	cr ." <baud rate>,{5,6,7,8},{n,e,o},{1,.,2},{-,h,s}" cr
+;
+
+: open
+	d# 9600 dup calc-timeout to timeout-ms
+	calc-timing to time-constant to clock-div
+	3 to data-bits
+	1 to stop-bits
+	0 to parity
+	0 to handshake
+	
+	my-args dup if (set-mode) else 2drop then
+	init
+
+	0 to #rx-buf
+	true to xon?
+	true
+;
+
+: close		;
+
+: >rx-buf	( char -- )
+	handshake 2 = if
+		dup case
+			drop 11 of true to xon? exit endof
+			drop 13 of false to xon? exit endof
+		endcase
+	then
+	#rx-buf rx-buf-len < if
+		#rx-buf dup 1+ to #rx-buf
+		rx-buf + c!
+	else
+		rx-buf dup dup 1+ swap
+		#rx-buf 1- >r r@ move
+		r> + c!
+	then
+;
+
+: fill-rx-buf	( -- )
+	handshake 1 = if set-rts then
+	
+	begin
+		0 rr@ 1 and
+	while
+		1 rr@ 70 and 0= if		\ Error?
+			8 rr@ >rx-buf
+		else
+			8 rr@ drop
+			30 0 wr!			\ Reset error
+		then
+	repeat
+;
+
+: read		( addr len -- actual )
+	fill-rx-buf
+
+	#rx-buf min >r					( R: actual )
+	rx-buf swap r@ move
+	#rx-buf r@ - to #rx-buf
+	rx-buf r@ + rx-buf #rx-buf move
+	r>
+;
+
+: tx-wait		( -- stalled? )
+	get-msecs
+	begin
+		0 rr@
+		dup 4 and if
+			handshake case		( start-ms rr0 )
+				1 of
+					20 and 0<>
+				endof
+				2 of
+					drop xon?
+				endof
+				drop true swap
+			endcase				( start-ms can-send? )
+			if
+				drop false exit
+			then
+		else
+			drop
+		then
+		1 us
+		fill-rx-buf
+		get-msecs over - timeout-ms >=
+	until
+	drop true
+;
+
+: write		( addr len -- actual )
+	0 -rot
+	bounds ?do
+		tx-wait ?leave
+		i c@ 8 wr!
+		1+
+	loop
+;
+
+fcode-end

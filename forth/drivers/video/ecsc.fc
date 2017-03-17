@@ -1,0 +1,103 @@
+fcode-version2
+hex
+
+headers
+
+" ecsc" device-name
+" display" device-type
+
+my-space 80 2dup reg " map-in" $call-parent constant ecsc-base
+-1 0 " map-in" $call-parent constant fb-address
+
+d# 800 constant fb-width
+d# 600 constant fb-height
+
+fb-address encode-int " address" property
+fb-width encode-int " width" property
+fb-height encode-int " height" property
+d# 8 encode-int " depth" property
+fb-width encode-int " linebytes" property
+
+40 constant clut-windex
+42 constant clut-data
+46 constant clut-rindex
+
+: reg@			( offset -- byte )
+	ecsc-base + rb@
+;
+
+: reg!			( byte offset -- )
+	ecsc-base + rb!
+;
+
+: unknown-wait	( -- )
+	14 reg@ 2 or 14 reg!
+	begin
+		14 reg@ 2 and
+	until
+;
+
+external
+
+: (open)
+	fb-address to frame-buffer-adr
+
+	fb-width fb-height
+	fb-width char-width / fb-height char-height /
+	fb8-install
+	true
+;
+
+: (close)	;
+
+: (draw-rectangle)	( addr x y w h -- )
+	>r 2 pick over + fb-width u> if abort then
+	swap dup r> + dup fb-height u> if abort then
+	3 pick fb-address + >r
+	fb-width * r@ + swap fb-width * r> +
+	>r >r nip r> r>
+	?do
+		2dup i swap move
+		tuck + swap
+	fb-width +loop
+	2drop
+;
+
+: draw-rectangle	( addr x y w h -- )
+	['] (draw-rectangle) catch if 2drop 2drop drop then
+;
+
+: color@		( index -- r g b )
+	clut-rindex reg!
+	clut-data reg@
+	clut-data reg@
+	clut-data reg@
+;
+
+: color!		( r g b index -- )
+	unknown-wait
+	clut-windex reg!
+	rot clut-data reg!
+	swap clut-data reg!
+	clut-data reg!
+;
+
+: set-colors	( addr first-index #indices -- )
+	unknown-wait
+	swap clut-windex reg!
+	0 ?do
+		dup c@ clut-data reg!
+		1+ dup c@ clut-data reg!
+		1+ dup c@ clut-data reg!
+		1+
+	loop
+	drop
+;
+
+' (open) is-install
+' (close) is-remove
+
+
+" active-package to default-screen" eval
+
+fcode-end

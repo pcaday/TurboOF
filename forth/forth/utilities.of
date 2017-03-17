@@ -1,0 +1,83 @@
+: #bucket  	( bucket# -- n )
+	head @ 0 swap
+	begin
+		dup
+	while
+		d>next @ >r 1+ r>
+	repeat
+	drop
+;
+
+: bucket-stats
+	#hash 0 ?do
+		cr ." Bucket #" i dup (u.) type [char] : emit tab
+		#bucket .d
+	loop
+;
+
+
+: $sift
+	2>r
+	wordlist
+	begin
+		@ dup exit? 0= and
+	while
+		dup d>name over d>len c@ 2dup 2r@ search chunk if
+			cr type
+		else
+			2drop
+		then
+		d>link
+	repeat
+	rdrop rdrop drop
+;
+
+: sifting		parse-word $sift ;
+
+
+: .dp-byte		( addr -- )
+	cpeek if 2 0u.r else ." --" then
+;
+
+: dump-peek
+	base @ >r hex cr
+	tuck /cells 2 >> 0 ?do
+		dup .cell ." :  "
+		dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ space
+		dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ space
+		dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ space
+		dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ cr
+		exit? if unloop r> base ! 2drop exit then
+	loop
+	swap [ /n 4 * 1- ] literal and dup if
+		swap dup .cell ." :  "
+		over /cells 0 ?do
+			dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ dup .dp-byte 1+ space
+		loop
+		swap /n1- and bounds ?do
+			i c@ .dp-byte
+		loop
+	else
+		2drop
+	then
+	r> base !
+;
+
+: fl	( addr len long -- )
+	-rot 3 - 0 max bounds ?do
+		dup i l@ = if cr i . then
+	loop
+;
+
+
+: fw	( addr len w -- )
+	-rot 1 - 0 max bounds ?do
+		dup i w@ = if cr i . then
+	loop
+;
+
+: fb	( addr len byte -- )
+	-rot bounds ?do
+		dup i c@ = if cr i . then
+	loop
+;

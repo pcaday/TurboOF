@@ -1,0 +1,29 @@
+fcode-version2
+hex
+
+" baboon" device-name
+" baboon" device-type
+
+1 encode-int " #address-cells" property
+1 encode-int " #size-cells" property
+
+my-space 100 2dup reg " map-in" $call-parent
+constant baboon-base
+
+0 encode-int my-space encode-int encode+ 100 encode-int encode+
+" ranges" property
+
+baboon-base 54 + rw@ encode-int " version" property
+
+external
+
+: map-in		drop baboon-base + ;
+: map-out		2drop ;
+
+: encode-unit	(u.) ;
+: decode-unit	$number if 0 then ;
+
+: open		true ;
+: close		;
+
+fcode-end

@@ -1,0 +1,54 @@
+hex
+external
+
+1 encode-int " #address-cells" property
+0 encode-int " #size-cells" property
+
+0 value #opens
+
+
+: reset-scc
+	0 0 rr@ drop		( complete any interrupted register accesses )
+	0 1 rr@ drop
+
+	C0 9 0 wr!
+	A ms
+	0 2 0 wr!
+;
+
+: open
+	#opens 0= if
+		reset-scc
+	then
+	#opens 1+ to #opens
+	true
+;
+
+: close
+	#opens 1- to #opens
+;
+
+: encode-unit	(u.) ;
+: decode-unit	$number if 0 then ;
+
+new-device
+" ch-a" device-name
+" serial" device-type
+0 encode-int " reg" property
+
+" scc-channel inline-byte-load" eval
+
+" active-package" eval
+finish-device
+
+
+
+new-device
+" ch-b" device-name
+" serial" device-type
+1 encode-int " reg" property
+
+" (chain)" eval
+
+finish-device
+

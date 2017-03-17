@@ -1,0 +1,76 @@
+F buffer: response
+F buffer: addresses
+
+: probe-device  ( default-addr addr -- )
+	new-device
+	tuck encode-int " reg" property
+	dup encode-int " default-addr" property
+	case
+		2 of " adb-keyboard inline-byte-load" eval endof
+		3 of " adb-mouse inline-byte-load" eval endof
+		" device" device-name
+	endcase
+	drop
+	finish-device
+;
+
+: probe-addr	( addr -- reply? )
+	1 ms
+	>r response 2 3 r> read-reg 2 =
+;
+
+: move-device   ( old-addr new-addr -- )
+	1 ms
+	dup >r response tuck c! 1+ FE swap c!
+	>r response 2 3 r> write-reg
+	r> probe-addr drop					( Probe the new address -- it's necessary, but you'll probably get zero )
+;
+
+: find-addr		( -- addr )
+	addresses F tuck +
+	begin
+		1- over
+	while
+		dup c@ 0= if
+			drop exit
+		then
+		>r 1- r>
+	repeat
+	drop					( Found nothing, return zero )
+;
+
+: resolve-addr	( addr -- )
+	>r 0 begin
+		find-addr												( last-addr new-addr )
+		dup 0= if ." no more addresses" r> drop 2drop exit then
+		r@ over move-device										( last-addr new-addr )
+		nip r@ over 1- addresses + c!							( new-addr )
+		r@ probe-addr 0=										( new-addr more? )
+	until
+																( last-addr )
+	0 over 1- addresses + c!									( last-addr )
+	r@ dup 1- addresses + c!									( last-addr )
+	r> move-device			( Move the last one back )
+;
+
+: probe			( -- )
+	." RESETing ADB " reset
+	
+	addresses 10 1 do
+		i probe-addr
+		over c! 1+			( For each address present, put FF in addresses )
+	loop drop
+	
+	addresses 10 1 do
+		dup c@ FF = if
+			i resolve-addr	( Resolve each address found earlier )
+		then
+		1+
+	loop drop
+	
+	addresses 10 1 do		( Now probe all that was found )
+		dup c@ ?dup if
+			i probe-device
+		then 1+
+	loop drop
+;

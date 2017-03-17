@@ -1,0 +1,65 @@
+fcode-version2
+hex
+external
+
+" scc" device-name
+" scc" device-type
+" escc-legacy" encode-string " compatible" property
+
+my-space 10 2dup reg " map-in" $call-parent
+dup constant scc-base encode-int " AAPL,address" property
+
+struct
+/w field >b-ctl
+/w field >a-ctl
+/w field >b-data
+/w field >a-data
+drop
+
+: >ctl			( ch -- addr )
+	scc-base swap if >b-ctl else >a-ctl then
+;
+
+: >data			( ch -- addr )
+	scc-base swap if >b-data else >a-data then
+;
+
+: rr@			( reg ch -- byte )
+	swap case
+		0 of >ctl rb@ endof
+		8 of >data rb@ endof
+		swap >ctl tuck rb! rb@ 0
+	endcase
+;
+
+: wr!			( byte reg ch -- )
+	swap case
+		0 of >ctl rb! endof
+		8 of >data rb! endof
+		swap >ctl tuck rb! rb! 0
+	endcase
+;
+
+
+fload scc.fci
+
+
+" dev ch-a" eval
+
+50 encode-int " clocks" property
+0 encode-int " brg-src" property
+384000 encode-int " clock-frequency" property
+0 encode-int " wait/req" property
+
+" dev .." eval
+" dev ch-b" eval
+
+50 encode-int " clocks" property
+0 encode-int " brg-src" property
+384000 encode-int " clock-frequency" property
+0 encode-int " wait/req" property
+
+" dev .." eval
+
+
+fcode-end

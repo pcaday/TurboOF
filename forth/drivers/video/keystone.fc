@@ -1,0 +1,13 @@
+fcode-version2
+hex
+external
+
+" keystone" device-name
+
+FEE0.0000 encode-int 40 encode-int encode+
+FEE0.E000 encode-int encode+ 40 encode-int encode+
+FEEF.E000 encode-int encode+ 80 encode-int encode+ " reg" property
+
+FE10.0000 encode-int 0010.0000 encode-int encode+ " vram-range" property
+
+fcode-end

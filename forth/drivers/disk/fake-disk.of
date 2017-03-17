@@ -1,0 +1,47 @@
+" fake" device-name
+" block" device-type
+
+true value ttl
+0 instance value deblocker
+100 constant block-size
+1000 constant max-transfer
+
+: open
+	0 0 " deblocker" $open-package dup to deblocker
+	0<>
+;
+
+: close
+	deblocker close-package
+;
+
+: read		" read" deblocker $call-method ;
+: write		" write" deblocker $call-method ;
+: seek		" seek" deblocker $call-method ;
+
+: alive?	ttl 1- dup to ttl 0<> ;
+
+: read-blocks		( addr block# #blocks -- actual-#blocks )
+	cr ." reading " dup . ." blocks from " over . ." to " 2 pick .
+	
+	>r >r >r 0 r> r> r>
+	bounds ?do
+		alive? not if unloop drop exit then
+		>r 1+ r>
+		block-size /cells 2/ 0 ?do
+			j over ! cell+
+			i over ! cell+
+		loop
+	loop
+	drop
+;
+
+: write-blocks		( addr block# #blocks -- actual-#blocks )
+	cr ." writing " dup . ." blocks from " rot . ." to " swap .
+	
+	dup 0 ?do
+		alive? not if drop i unloop exit then	
+	loop
+;
+
+3000 buffer: huge

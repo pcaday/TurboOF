@@ -1,0 +1,117 @@
+
+true value nm-in-globals?
+
+: (next-match)				( addr len d -- addr len d found-word found-len
+											| addr len 0 )
+	-rot 2>r
+	begin
+		dup
+	while
+		dup d>len c@ r@ u>= if
+			dup d>name r@ 2r@ $= if
+				2r> rot >r
+				r@ d>link @
+				r@ d>name
+				r> d>len c@ exit
+			then
+		then
+		d>link @
+	repeat
+	drop
+	2r> 0
+;
+
+: next-match				( addr len d -- addr len d found-word found-len
+											| addr len 0 )
+	(next-match) dup 0= if
+		nm-in-globals? not if
+			true to nm-in-globals?
+			drop list @ (next-match)
+		then
+	then
+;
+
+: start-match				( addr len -- addr len d )
+	active-package dup 0= dup to nm-in-globals?
+	if
+		drop list
+	else
+		n>method
+	then @
+;
+
+: $-#equal					( str1 len1 str2 len2 -- n )
+	rot min >r r@ 0 ?do
+		over i + c@ lcc
+		over i + c@ lcc
+		<> if
+			2drop i unloop rdrop exit
+		then
+	loop
+	2drop r>
+;
+
+0 value #completable
+
+: max-#completable				( addr len wordlist -- addr len )
+	-rot 2>r @
+	begin
+		dup
+	while
+		dup d>name over d>len c@ 2r@ $-#equal
+		#completable max to #completable
+		d>link @
+	repeat
+	drop 2r>
+;
+
+: (completion-accept-hook)		( len pos char -- len' pos' char true [not handled]
+										| len' pos' false [handled] )
+	case
+		control I of
+			control @
+		then				\ fallthrough
+		control @ of
+			dup word>begin 2dup -		( len pos begin word-len )
+			>r dup accept-addr + r>		( len pos begin word-addr word-len )
+			start-match next-match dup if
+				2>r r@ to #completable
+				begin
+					next-match dup
+				while
+					2r@ $-#equal #completable min to #completable
+				repeat
+				rdrop drop chunk		( len pos word-len  R: completed-addr )
+				#completable over - to #save
+				r> + save #save move
+				insert-save
+			else
+				drop 0 to #completable
+				active-package ?dup if
+					n>method max-#completable
+				then
+				list max-#completable		( len pos begin word-addr word-len )
+				chunk #completable -		( len pos #-to-delete )
+				dup cursor-b dup text-b
+				tuck - >r - r>
+			then
+			false
+		endof
+		control ? of
+			control /
+		then				\ fallthrough
+		control / of
+			2dup - cursor-f drop
+			accept-addr over start-match begin
+				next-match dup
+			while
+				cr type
+			repeat
+			3drop
+			cr cr dup accept-addr over type false
+		endof
+		(history-accept-hook) 0
+	endcase
+;
+
+' (completion-accept-hook) to query-accept-hook

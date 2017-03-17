@@ -1,0 +1,15 @@
+fcode-version2
+hex
+external
+
+" trex" device-name
+" pcmcia" device-type
+
+my-space 40 reg
+
+-1 10 " map-in" $call-parent encode-int 0400.0000 encode-int encode+ " socket0-mem-window" property
+-1 11 " map-in" $call-parent encode-int 0400.0000 encode-int encode+ " socket0-io-window" property
+-1 12 " map-in" $call-parent encode-int 0400.0000 encode-int encode+ " socket1-mem-window" property
+-1 13 " map-in" $call-parent encode-int 0400.0000 encode-int encode+ " socket1-io-window" property
+
+fcode-end

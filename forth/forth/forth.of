@@ -1,0 +1,1392 @@
+: clear		stack-base cell+ dsp! 0 dsp@ BEEFCAFE swap ! drop ;
+: depth		stack-base dsp@ - /cells ;
+
+: (alias)
+	2swap 0 new-def (recursive) (find-throw)
+	dup d>type c@ >r dup d>interp @ >r d>comp @
+	last @ tuck d>comp ! r> over d>interp ! r> swap d>type c!
+;
+
+: alias		parse-word parse-word (alias) ;
+
+: within	over - >r - r> u< ;
+: between	1+ within ;
+
+: mod		/mod drop ;
+: 2+		2 + ;
+: 2-		2 - ;
+: abs		dup 0< ?negate ;
+: nabs		dup 0> ?negate ;
+: max		_1! _2! _2@ _1@ < if _1@ else _2@ then ;
+: min		_1! _2! _2@ _1@ < if _2@ else _1@ then ;
+: umax		_1! _2! _2@ _1@ u< if _1@ else _2@ then ;
+: umin		_1! _2! _2@ _1@ u< if _2@ else _1@ then ;
+: even		dup 1 and + ;
+
+alias lshift <<
+alias rshift >>
+alias invert not
+: 2*		1 << ;
+: 2/		1 >>a ;
+: u2/		1 >> ;
+
+: s>d		dup [ bits/cell 1- ] literal >>a ;
+: d>s		drop ;
+: d0<		0< nip ;
+: d0=		or 0= ;
+: d0>		dup 0> >r 0= >r 0> r> and r> or ;
+: d2*		1 << >r [ bits/cell 1- ] literal >>r dup >r [ 1 not ] literal and r> 1 and r> or ;
+: d2/		dup >r 1 and 1 >>r >r 1 >> r> or r> 1 >>a ;
+: du<		>r swap r> 2dup u< >r = >r u< r> and r> or ;
+: d<		>r swap r> 2dup < >r = >r u< r> and r> or ;
+: d=		_1! >r _2! r> = _1@ _2@ = and ;
+: dabs		dup 0< if dnegate then ;
+: dnabs		2dup d0> if dnegate then ;
+: dmax		4dup d< if 2nip else 2drop then ;
+: dmin		4dup d< if 2drop else 2nip then ;
+: m+		s>d d+ ;
+
+: m/classify
+	dup 0< dup >r if
+		negate
+	then >r
+	dup 0< _2! _2@ if 
+		dnegate
+	then
+	r> _2@ r>
+;
+
+: sm/rem	m/classify >r >r um/mod r@ if >r negate r> then r> r> xor if negate then ;
+: fm/mod	m/classify >r >r _2! _2@ um/mod r> r@ xor if >r _1! _1@ _1@ 0= if r> negate else >r _2@ r> - r> not then then r> if >r negate r> then ;
+: mu/mod	_1! _1@ u/mod _2! _1@ um/mod _2@ ;
+: */mod		>r m* r> sm/rem ;
+: um*/		>r tuck um* >r >r um* 0 r> r> d+ r> _1! _1@ u/mod _2! _1@ um/mod >r _1@ um/mod nip r> ;
+: m*/		>r m/classify xor r> swap >r um*/ r> if dnegate then ;
+: */		*/mod nip ;
+: u/		u/mod nip ;
+
+: lbsplit	_1! _1@ FF and _1@ 8 >> FF and _1@ 10 >> FF and _1@ 18 >> FF and ;
+: lwsplit	_1! _1@ FFFF and _1@ 10 >> FFFF and ;
+: wbsplit	_1! _1@ FF and _1@ 8 >> FF and ;
+: bljoin	8 << or 8 << or 8 << or ;
+: bwjoin	8 << or ;
+: wljoin	10 << or ;
+: bljoin-i	8 >>r or 8 >>r or 8 >>r or [ bits/cell 18 - ] literal >>r ;
+: bwjoin-i	swap bwjoin ;
+: wljoin-i	swap wljoin ;
+: lbflip	lbsplit bljoin-i ;
+: lwflip	lwsplit wljoin-i ;
+: wbflip	wbsplit bwjoin-i ;
+
+2 constant /w
+4 constant /l
+8 constant /d
+
+alias ca+ +
+: wa+		1 << + ;
+: la+		2 << + ;
+: na+		2 << + ;
+alias ca1+ char+
+: wa1+		2 + ;
+: la1+		4 + ;
+alias na1+ cell+
+alias /c* chars
+: /w*		1 << ;
+: /l*		2 << ;
+alias /n* cells
+
+: b>n		[ bits/cell 8 - dup ] literal << literal >>a ;
+: w>n		[ bits/cell 10 - dup ] literal << literal >>a ;
+
+: <w@		w@ w>n ;
+alias l@ @
+alias l! !
+
+: waligned	[ /w 1- ] literal + [ /w negate ] literal and ;
+: walign	dp@ waligned dp! ;
+: w,		dp@ waligned tuck w! wa1+ dp! ;
+: laligned	[ /l 1- ] literal + [ /l negate ] literal and ;
+: lalign	dp@ laligned dp! ;
+: l,		dp@ laligned tuck l! la1+ dp! ;
+
+: off		>r false r> ! ;
+: on		>r true r> ! ;
+: blank		bl fill ;
+: erase		0 fill ;
+: wbflips	bounds ?do i w@ wbflip i w! /w +loop ;
+: lbflips	bounds ?do i l@ lbflip i l! /l +loop ;
+: lwflips	bounds ?do i l@ lwflip i l! /l +loop ;
+
+: j		3 rpick ;
+: k		5 rpick ;
+
+: count		_1! _1@ char+ _1@ c@ ;
+: packmax	swap >r min r> _1! _2! _2@ _1@ c! _1@ char+ _2@ move _1@ ;	
+: pack		[ FF chars ] literal packmax ;
+
+: scan
+	source >r >in @
+	begin
+		dup r@ <
+	while
+		2dup + c@ 3 pick <>
+	while
+		char+
+	repeat then
+	rdrop char+ >in ! 2drop
+;
+
+: parse-line
+	source >r >in @
+	begin
+		dup r@ >= if
+			rdrop drop 0 exit
+		then
+		2dup + c@ [bl1+] <
+	while
+		char+
+	repeat
+	tuck>r
+	begin
+		char+ dup r@ <
+	while
+		2dup + c@ >r carret r@ = linefeed r> = or
+	repeat-until
+	dup char+ >in !
+	rdrop r@ - swap r> + swap
+;
+
+: >in1+		>in @ char+ >in ! ;
+: (in)		source >in @ tuck = if 2drop false else + c@ >in1+ true then ;
+
+: (		[char] ) scan ; immediate
+: \		parse-line 2drop ; immediate
+
+: (parse)	>in @ >r scan source drop r@ + >in @ r> - char- ;
+: parse		dup bl = if drop parse-word else (parse) then ;
+
+50 constant word-buf-len
+word-buf-len buffer: word-buf
+: word		parse word-buf word-buf-len packmax word-buf ;
+
+: char		parse-word 0<> if c@ else drop then ;
+: ascii		char ;>compile postpone [char] ;
+: control	parse-word 0<> if c@ 1F and else drop then ;>compile
+			parse-word 0<> if c@ 1F and (literal) else drop then ;
+: printing?	7F and 20 u>= ;
+
+: $char+	over 0= if drop else 2 pick c! char- swap char+ swap then ;
+: cat		2 pick min >r >r over r> swap r@ move r@ - swap r> + swap ;	( str1 len1-rem str2 len2 )
+: -leading	tuck + swap begin dup while 2dup - c@ bl <> if tuck - swap exit then char- repeat - 0 ;
+: -trailing	>r dup r> + begin 2dup u>= if drop 0 exit then char- dup c@ bl <> until over - char+ ;
+: /string	>r r@ - swap r> + swap ;
+: cmove		0 ?do over i + c@ over i + c! loop 2drop ;
+: cmove>	>r r@ char- + swap r@ char- + swap r> 0 ?do over i - c@ over i - c! loop 2drop ;
+: $lcc		over + swap begin dup c@ lcc over c! char+ 2dup = until 2drop ;
+: $upc		over + swap begin dup c@ upc over c! char+ 2dup = until 2drop ;
+: $lcc>		0 ?do over i + c@ lcc over i + c! loop 2drop ;
+
+: c>f$			( cstring -- addr len )
+	dup char- begin
+		char+ dup c@ 0=
+	until
+	over -
+;
+
+
+: c>f$-max		( cstring maxlen -- addr len )
+	>r dup r> 0 ?do
+		dup c@ 0= ?leave
+		char+
+	loop
+	over -
+;
+
+: f>c$			( addr len dest-addr -- )
+	2dup + 0 swap c!
+	swap move
+;
+
+: f>c$-max		( addr len dest-addr dest-size -- len-actual )
+	2 pick over u>= if
+		chip dup >r move r>
+	else
+		drop over >r f>c$ r>
+	then
+;
+
+( addr len -- )
+: $,		>r here r@ move r> allot ;
+
+
+80 constant cmp-buf-size
+cmp-buf-size dup
+buffer: cmp-buf-1
+buffer: cmp-buf-2
+: compare
+	>r swap r> swapdup u< if nip 1 >r else 2dup u< >r drop then cmp-buf-size min >r
+	cmp-buf-2 r@ $lcc>
+	cmp-buf-1 r@ $lcc>
+	cmp-buf-1 cmp-buf-2 r> comp
+	dup 0= if drop r> else rdrop then
+;
+
+: search
+	>r swap r> 2dup 2>r
+	- dup 0< if
+		drop
+	else
+		char+ 0 ?do
+			over i + c@ lcc
+			over c@ lcc
+			= if
+				over i + over j tuck $= if
+					drop i unloop rdrop r> swap /string true exit
+				then
+			then
+		loop
+	then
+	rdrop drop r> false
+;
+
+: left-parse-string
+	-rot dup >r 0 ?do
+		2dup i + c@ = if
+			nip dup i + char+ i tuck unloop
+			r> - not 2swap
+			exit
+		then
+	loop
+	>r drop 0 0 r> r>
+;
+
+: split-before	( str len delim -- R-str R-len L-str L-len )
+	swap >r over r@ 0 ?do
+		2dup c@ = if
+			nip i unloop tuck r> swap - 2swap exit
+		then char+
+	loop
+	2drop >r 0 0 r> r>
+;
+
+: split-after	( str len delim -- L-str L-len R-str R-len )
+	swap >r over r@ + r@ 0 ?do
+		char- 2dup c@ = if
+			nip char+ swapdup - swap i unloop rdrop exit
+		then
+	loop
+	2drop r> 0 0
+;
+
+: (sliteral)
+	here /literal 2* + /branch + dup (literal) over (literal)
+	branch, here >r 2dup + >r swap move r> caligned dup dp! r> swap (>resolve)
+;
+
+: sliteral	(sliteral) ; immediate
+
+50 constant "buf-len
+"buf-len buffer: "buf-1
+"buf-len buffer: "buf-2
+
+variable "buf
+"buf-1 "buf !
+
+: get-"buf	"buf @ dup "buf-1 = >r "buf-2 "buf-1 r> iff "buf ! ;
+: to-"buf	"buf-len min tuck get-"buf >r r@ swap move r> swap ;
+
+: h#-digit
+	dup [char] 0 [ char 9 1+ ] literal within if [char] 0 - exit then
+	upc dup [char] A [char] G within if [ char A A - ] literal - else drop -1 then
+;
+
+: h#-digits
+	false >r
+	begin
+		(in)
+	while
+		dup [char] ) <>
+	while
+		h#-digit dup -1 = if drop else
+			r> if
+				r> 4 << or $char+ false >r
+			else
+				>r true >r
+			then
+		then
+	repeat
+		drop
+	then
+	r> if rdrop then
+;
+
+: parse-"
+	get-"buf dup "buf-len
+	begin
+		[char] " parse cat dup
+	while
+		(in)
+	while
+		[char] ( =
+	while
+		h#-digits
+	repeat then then
+	drop over -
+;
+
+: "			parse-" ;>compile parse-" (sliteral) ;
+: s"		[char] " parse to-"buf ;>compile [char] " parse (sliteral) ;
+: c"		[char] " parse get-"buf "buf-len packmax ;>compile
+			[char] " parse dup >r get-"buf "buf-len packmax r> char+ (sliteral) compile drop ;
+
+: ('		(find-throw) d>interp @ ;
+: '			(') ;>compile parse-word (sliteral) compile (' ;
+
+: binary	2 base ! ;
+: octal		8 base ! ;
+: decimal	A base ! ;
+: hex		10 base ! ;
+
+: >number	(>number) >r >r d+ r> r> ;
+: convert	100 >number drop ;
+: digit		base @ >r base ! dup (digit) dup if chip then r> base ! ;
+: x#		base @ >r base ! parse-word $number if 0 then r> base ! state @ if (literal) then ;
+: b#		2 x# ; immediate
+: o#		8 x# ; immediate
+: d#		A x# ; immediate
+: h#		10 x# ; immediate
+
+42 constant #buf-size
+#buf-size buffer: #buf
+variable ##buf
+
+: <#		#buf-size ##buf ! ;
+: hold		##buf @ dup 0> if char- dup >r #buf + c! r> ##buf ! else 2drop then ;
+: sign		0< if [char] - hold then ;
+: (#)		dup A u< if [char] 0 else [ char A A - ] literal then + hold ;
+: (#>)		##buf @ >r #buf r@ + #buf-size r> - ;
+: u#		base @ u/mod swap (#) ;
+: u#s		begin u# dup 0= until ;
+: u#>		drop (#>) ;
+: #		base @ mu/mod rot (#) ;
+: #s		begin # dup 0= until swap dup if u#s then ;
+: #>		2drop (#>) ;
+: (ud.)		<# #s #> ;
+: (d.)		<# dup -rot dabs #s rot sign #> ;
+: (u.)		<# u#s u#> ;
+: (.)		<# dup abs u#s swap sign u#> ;
+
+
+0 constant dec.call
+1 constant dec.lit
+2 constant dec.pro
+3 constant dec.epi
+4 constant dec.br
+6 constant dec.t-br
+7 constant dec.f-br
+A constant dec.other
+
+
+defer (instance-to)
+defer (instance-2to)
+defer (instance-is)
+defer (local-to)
+defer (register-to)
+
+: ((to))
+	dup d>interp @
+	swap d>type c@ EE and case
+		tvalue of ['] (value-to) endof
+		tdefer of ['] (is) endof
+		t2value of ['] (2value-to) endof
+		[ tvalue tinst or ] literal of ['] (instance-to) endof
+		[ t2value tinst or ] literal of ['] (instance-2to) endof
+		[ tdefer tinst or ] literal of ['] (instance-is) endof
+		tlocal of execute #do @ na+ ['] (local-to) endof
+		treg of ['] (register-to) endof
+		-20 throw
+	endcase
+;
+
+: (to)		(find-parse) ((to)) ;
+
+: to
+	(to) execute
+;>compile
+	(to) swap (literal) compile,
+;
+
+alias 2to to
+alias -> to
+alias is to
+
+: push-source	r> source >r >r >in @ >r >r ;
+: pop-source	r> r> >in ! r> r> to source >r ;
+: evaluate	push-source >in off to source interpreting/compiling pop-source ;
+alias eval evaluate
+
+: find
+	dup count (find)
+	if
+		nip dup d>interp @ swap
+		d>type c@ timmed and if 1 else -1 then
+	else
+		0
+	then
+;
+
+: $find
+	2dup (find)
+	if
+		d>interp @ dup 0= if drop throw-$ 2! -E throw then chunk true
+	else
+		false
+	then
+;
+
+: recurse	last @ d>interp @ compile, ; immediate
+: defined?	(find) dup if nip then ;
+alias forth noop
+
+: xt>d			( xt -- d -2 [imm] | d -1 [comp] | xt 0 [fail] | d 1 [interp] )
+	>r
+	r@ ['] |`| u< if
+		r@ [ s" |`|" (find-throw) ] literal begin
+			d>link @ dup
+		while
+			2dup d>interp @ = if
+				nip 1 rdrop exit
+			then
+		repeat
+	else
+		r@ virt_base - virt_size u>= if r> 0 exit then
+		r@ r@
+		20 0 do
+			2dup @ = if
+				tuck cell- @ >r r@ = if
+					-2 rdrop
+				else
+					dup r> u< 2* 1+
+				then
+				>r r@ 0< na+ [ 0 d>interp ] literal - r>
+				unloop rdrop exit
+			then cell-
+		loop
+	then
+	2drop r> 0
+;
+
+: 'c		(find-parse) d>comp @ ; immediate
+: 'd		(find-parse) ; immediate
+
+: code		:-prep parse-word tcode new-def ;
+: label		code here (literal) ;
+: c;		return ;
+: end-code	(recursive) ;
+
+: (is-user-word) >r 0 new-def r> last @ d>interp ! (recursive) ;
+
+: behavior	decompile dec.br <> if -40 throw then nip ;
+
+: [noop]	; immediate
+
+: [else]	rdrop rdrop true ; immediate
+: [then]	rdrop rdrop false ; immediate
+
+: ((find-[if]))
+	6 = if
+		6 2dup s" [else]" $= if
+			2drop [ s" [else]" (find) ] 2literal exit
+		else 2dup s" [then]" $= if
+			2drop [ s" [then]" (find) ] 2literal exit
+		then then drop
+	then
+	drop [ s" [noop]" (find) ] 2literal
+;
+
+: ([if])	interpreting/compiling false ;
+
+: [if]
+	['] (find) behavior >r
+	['] ((find-[if])) tuck r@ xor >r
+	0<> r@ and xor >r r@ to (find)
+	begin
+		([if])
+	while
+		r> r@ xor >r r@ to (find)
+	repeat
+	rdrop rdrop r> to (find)
+; immediate
+
+
+100 constant temp-def-size
+
+: <temp> [ here ] ; dup temp-def-size + dp!
+constant temp-def
+
+variable orig-dsp
+variable orig-dp
+orig-dp off
+
+: temp:
+	dp@ orig-dp ! dsp@ orig-dsp ! temp-def dp! ]
+;
+
+: reset-temp
+	([) orig-dp @ dp! orig-dp off orig-dsp off
+;
+
+: ?temp;
+	dsp@ orig-dsp @ = if
+		epilogue, reset-temp
+		['] <temp> temp-def-size exec'able
+		<temp>
+	then
+;
+
+: untemp	orig-dp @ if orig-dsp @ _1! _1@ cell- @ _2! _1@ dsp! _2@ nip reset-temp then ;
+
+
+' begin
+: begin		temp: postpone begin ; is-comp
+
+' if
+: if		temp: postpone if ; is-comp
+
+' ?do
+: ?do		temp: postpone ?do ; is-comp
+
+' do
+: do		temp: postpone do ; is-comp
+
+' case
+: case		temp: postpone case ; is-comp
+
+
+: until		postpone until ?temp; ; immediate
+: again		postpone again ?temp; ; immediate
+: repeat	postpone repeat ?temp; ; immediate
+: repeat-until	postpone repeat-until ?temp; ; immediate
+: then		postpone then ?temp; ; immediate
+: loop		postpone loop ?temp; ; immediate
+: +loop		postpone +loop ?temp; ; immediate
+: endcase	postpone endcase ?temp; ; immediate
+
+alias cs-pick pick
+alias cs-roll roll
+
+: but		swap ; immediate
+: yet		dup ; immediate
+
+80 constant pad-size
+pad-size buffer: pad
+
+
+8 constant max-locals
+0 value #locals
+variable locals
+
+: clear-locals	0 to #locals ;
+' clear-locals to :-prep
+
+rsp-down? [if]
+: (local@)	rsp@ + @ ;
+: (local!)	rsp@ + ! ;
+: (locals-exit)	rsp@ + rsp! ;
+: (locals-;)	rsp@ + rsp! ;
+[else]
+: (local@)	rsp@ - cell- @ ;
+: (local!)	rsp@ - cell- ! ;
+: (locals-exit)	rsp@ - rsp! ;
+: (locals-;)	rsp@ - rsp! ;
+[then]
+' (local!) to (local-to)
+
+: (local'c)	#do @ na+ (literal) compile (local@) ;
+
+: :l
+	align
+	here dup 20 + /de + >r
+	0 c,
+	tlocal c,
+	locals @ , dup locals ! last !
+	0 ,
+	r@ ,
+	0 ,
+	0 ,
+	r@ exec'able-at
+	r> dp!
+;
+
+: local,		( local# -- )
+	prologue, 1+ cells dup (literal) postpone ;>compile
+	(literal) compile (local'c) postpone ;
+;
+
+: $:locals>
+	>r (:)
+	compile r> compile _1!
+	r> 0 ?do compile >r loop
+	compile _1@ compile >r postpone ;
+	last @ d>interp @
+;
+
+create locals>-tab max-locals cells allot
+
+: make-locals
+	pad " (locals>1)" tuck pad swap move
+	locals>-tab max-locals 1+ 1 ?do
+		>r 2dup r> i swap >r $:locals> r@ !
+		2dup + -2 ca+ dup c@ 1+ swap c!
+		r> cell+
+	loop 3drop
+	
+	max-locals 0 ?do
+		:l max-locals 1- i - local,
+	loop
+;
+
+: $rename	( addr len d -- )
+	2dup dup d>interp @ swap d>name - u> -13 and throw
+	2dup d>len c!
+	d>name swap move
+;
+
+make-locals
+
+
+: exit
+	r> _1! recursive
+;>compile
+	#locals dup if
+		1+ cells (literal) compile (locals-exit)
+	else
+		drop compile exit
+	then
+;
+
+: (locals-does>)
+	r> rs>compile decompile> last @ d>interp @ decompile> dp@ >r dp! branch-to, r> dp!
+	(locals-;)
+;
+
+: does>
+	#locals dup if
+		2+ cells (literal) compile (locals-does>)
+	else
+		drop compile (does>)
+	then
+	:-exec'able (recursive) :noname drop
+; immediate
+
+:noname
+	#locals dup if
+		1+ cells (literal) compile (locals-;)
+	else
+		drop epilogue,
+	then :-exec'able
+; to :-end
+
+variable {-from-stack?
+
+: {
+	#locals if -41 throw then
+	{-from-stack? on
+	locals @
+	true
+	begin				( d defining? )
+		parse-word
+		2dup " ;" $= if 2drop {-from-stack? off parse-word then
+		dup 0= if -41 throw then
+		2dup " --" $= if chip false -rot then
+		2dup " }" $= not
+	while
+		2swap
+		if
+			>r
+			r@ 0= if -42 throw then
+			r@ $rename
+			r@ d>link @
+			dup r> d>next !
+			#locals 1+ to #locals
+			{-from-stack? @ not if
+				0 (literal)
+			then
+			true
+		else
+			chunk false
+		then
+	repeat
+	
+	3drop
+	?dup if
+		d>next off
+	then
+	#locals ?dup if
+		1- cells locals>-tab + @ compile,
+	then
+; immediate
+
+0 value active-package
+0 value my-self
+variable state-valid
+
+: w@-be		dup 1+ c@ swap c@ bwjoin ;
+: w!-be		>r wbsplit r@ c! r> 1+ c! ;
+: l@-be		>r r@ 3 + c@ r@ 2+ c@ r@ 1+ c@ r> c@ bljoin ;
+: l!-be		>r lbsplit r@ c! r@ 1+ c! r@ 2+ c! r> 3 + c! ;
+
+: w@-le		dup c@ swap 1+ c@ bwjoin ;
+: w!-le		>r wbsplit r@ 1+ c! r> c! ;
+: l@-le		>r r@ c@ r@ 1+ c@ r@ 2+ c@ r> 3 + c@ bljoin ;
+: l!-le		>r lbsplit r@ 3 + c! r@ 2+ c! r@ 1+ c! r> c! ;
+
+1 "buf-1 ! "buf-1 c@ 0<> constant le?
+
+le? [if]
+alias unaligned-w@ w@-le
+alias unaligned-w! w!-le
+alias unaligned-l@ l@-le
+alias unaligned-l! l!-le
+[else]
+alias unaligned-w@ w@-be
+alias unaligned-w! w!-be
+alias unaligned-l@ l@-be
+alias unaligned-l! l!-be
+[then]
+
+alias @-be l@-be
+alias !-be l!-be
+
+defer (emit)
+defer emit?
+defer key
+defer key?
+
+:noname drop ; to (emit)
+:noname true ; to emit?
+:noname begin again ; to key
+:noname false ; to key?
+
+variable span
+variable #line
+variable #out
+19 value #lines
+50 value #columns
+
+: emit		dup printing? if 1 #out +! then (emit) ;
+
+: type		bounds ?do i c@ emit loop ;
+: ."		[char] " parse type ;>compile [char] " parse (sliteral) compile type ;
+: .(		[char] ) parse type ;>compile [char] ) parse (sliteral) compile type ;
+
+: cr		linefeed emit carret emit 1 #line +! #out off ;
+: (cr		carret emit " "(1B5B4B)" type #out off ;
+: page		C emit #out off #line off ;
+: esc		1B emit ;
+: space		bl emit ;
+: spaces	0 ?do space loop ;
+: zeros		0 ?do [char] 0 emit loop ;
+: tab		9 emit #out dup @ 8 + -8 and swap ! ;
+
+: s.		(.) type space ;
+: u.		(u.) type space ;
+: sd.		(d.) type space ;
+: ud.		(ud.) type space ;
+: .r		>r (.) dup r> max over - spaces type ;
+: u.r		>r (u.) dup r> max over - spaces type ;
+: d.r		>r (d.) dup r> max over - spaces type ;
+: ud.r		>r (ud.) dup r> max over - spaces type ;
+
+: 0u.r		>r (u.) dup r> max over - zeros type ;
+
+defer . ' u. to .
+defer d. ' ud. to d.
+
+: .x		base @ >r base ! s. r> base ! ;
+: .b		2 .x ;
+: .o		8 .x ;
+: .d		A .x ;
+: .h		10 .x ;
+: u.dn		base @ >r decimal (u.) type r> base ! ;
+: (u.h)		base @ >r hex (u.) r> base ! ;
+: ?		@ . ;
+: .s
+	depth if
+		0 dsp@ stack-base begin cell- 2dup <= while dup ? repeat 3drop
+	else
+		." <empty> "
+	then
+;
+
+: pause
+	#out @ if cr then
+	." Press any key to continue"
+	key control C = if -56 throw then
+	(cr
+;
+
+: exit?
+	key? if
+		true key lcc [char] q = if exit then
+	else
+		s" lines/page" $find not if 2drop false exit then execute #line @ <=
+	then
+	if
+		#out @ if cr then
+		." More? [<space>, <cr>, Q] " key
+		(cr lcc case
+			carret of false endof
+			[char] q of #line off cr ." Quitting" true endof
+			false swap #line off
+		endcase
+	else
+		false
+	then
+;
+
+: .cell		[ /n 2* ] literal 0u.r ;
+
+/n 1- constant /n1-
+
+: dump
+	base @ >r hex cr
+	tuck /cells 2 >> 0 ?do
+		dup .cell ." :  "
+		dup l@-be .cell space
+		na1+ dup l@-be .cell space
+		na1+ dup l@-be .cell space
+		na1+ dup l@-be .cell cr
+		na1+
+		exit? if unloop r> base ! 2drop exit then
+	loop
+	swap [ /n 4 * 1- ] literal and dup if
+		swap dup .cell ." :  "
+		over /cells 0 ?do
+			dup l@-be .cell space
+			na1+
+		loop
+		swap /n1- and bounds ?do
+			i c@ 2 0u.r
+		loop
+	else
+		2drop
+	then
+	r> base !
+;
+
+defer wordlist
+' list to wordlist
+
+: words
+	wordlist @
+	cr 
+	dup if
+		dup d>type c@ tinv and if
+			d>link @ dup 0= if drop exit then
+		then
+		begin
+			dup d>name over d>len c@
+			tab dup #out @ + #columns >= if cr then
+			exit? if
+				3drop exit
+			then
+			type
+			d>link @ dup 0=
+		until
+	then
+	drop
+;
+
+
+
+
+: abort		-1 throw ;
+
+80 constant tib-size
+tib-size buffer: tib
+variable #tib
+
+defer at-xy
+defer cursor-f
+defer cursor-b
+defer text-f
+defer text-b
+
+: x3.64-at-xy		esc [char] [ emit u.dn [char] ; emit u.dn [char] H emit ;
+: x3.64-n			over if esc [char] [ emit swap u.dn emit else 2drop then ;		( n char -- )
+: x3.64-cursor-f	[char] C x3.64-n ;												( n -- )
+: x3.64-cursor-b	[char] D x3.64-n ;												( n -- )
+: x3.64-text-f		[char] @ x3.64-n ;												( n -- )
+: x3.64-text-b		[char] P x3.64-n ;												( n -- )
+
+' x3.64-at-xy to at-xy
+' x3.64-cursor-f to cursor-f
+' x3.64-cursor-b to cursor-b
+' x3.64-text-f to text-f
+' x3.64-text-b to text-b
+
+
+0 value accept-addr
+0 value accept-len
+false value accept-done?
+0 value accept-csi?
+defer accept-hook		( len pos char -- len' pos' char true [not handled]
+										| len' pos' false [handled] )
+' true to accept-hook
+
+
+: csi>control		( char -- byte )
+	case
+		ascii A of control P endof
+		ascii B of control N endof
+		ascii C of control F endof
+		ascii D of control B endof
+		ascii H of control A endof
+		ascii K of control E endof
+		ascii @ of 0 endof
+		ascii P of control D endof
+		ascii ? of 0 endof
+		ascii / of control L endof
+		dup
+	endcase
+;
+
+
+40 constant save-size
+save-size buffer: save
+0 value #save
+
+: >save					( offset len -- )
+	dup if
+		save-size min >r accept-addr + save r@ move r> to #save
+	else
+		2drop
+	then
+;
+
+: insert-save			( len pos -- len' pos' )
+	over #save + accept-len u<= if
+		#save >r
+		2dup - over accept-addr +	( len pos len-pos addr+pos )
+		tuck dup r@ + rot move		( len pos addr+pos )
+		save swap r@ move			( len pos )
+		save r@ text-f r@ type
+		r@ + swap r> + swap
+	then
+;
+
+: word>begin			( offset -- offset' )
+	dup if
+		char- >r r@ accept-addr + r>
+		0 ?do
+			char-
+			dup c@ bl = if
+				char+ leave
+			then
+		loop
+		accept-addr -
+	then
+;
+
+: word>end			( len offset -- len offset offset' )
+	2dup u> if
+		over accept-addr + over accept-addr + 1+ ?do
+			i c@ bl = if
+				i accept-addr - unloop exit
+			then
+		loop
+		over
+	else
+		dup
+	then
+;
+
+: cut-word-begin		( len pos -- len' pos' )
+	2dup - >r
+	dup word>begin 2dup - 2dup >save	( len pos begin #cut  R: len-pos)
+	swap accept-addr + 2dup + swap r> move
+	dup cursor-b
+	dup text-b
+	tuck - >r - r>
+;
+
+8 constant #history
+0 value #history-valid
+#history tib-size * buffer: history
+-1 value history-ptr
+
+: >history			( addr len -- )
+	dup if
+		history dup tib-size + [ #history 1- tib-size * ] literal move
+		history tib-size f>c$-max drop
+		#history-valid 1+ #history min to #history-valid
+	else
+		2drop
+	then
+;
+
+: history@		tib-size * history + tib-size c>f$-max ;		( history# -- addr len )
+: load-history	cursor-b text-b history-ptr history@			( len pos -- len' pos' )
+				2dup accept-len min accept-addr swap move tuck type dup ;
+
+: (history-accept-hook)		( len pos char -- len' pos' char true [not handled]
+											| len' pos' false [handled] )
+	accept-csi? if
+		csi>control
+		false to accept-csi?
+	then
+	case	
+		linefeed of
+			carret
+		then						\ fall through
+		carret of
+			over accept-addr swap >history carret true
+		endof
+		control L of
+			2dup - cursor-f
+			#history-valid dup 0 ?do
+				cr 1- dup history@ type
+			loop 2drop
+			cr dup accept-addr over type false
+		endof
+		control N of
+			history-ptr dup 0> if
+				1- to history-ptr load-history
+			else
+				0= if
+					-1 to history-ptr cursor-b text-b 0 0
+				then
+			then false
+		endof
+		control P of
+			history-ptr 1+ dup #history-valid < if
+				to history-ptr load-history
+			else
+				drop
+			then false
+		endof
+		true 0
+	endcase
+;
+
+defer rest					( -- )				\ wait for a short period of time for user input
+' noop to rest
+
+: (accept)					( addr maxlen cur-len cur-pos -- )
+	false to accept-done? false to accept-csi?
+	2swap to accept-len to accept-addr		( cur-len cur-pos )
+	begin
+		key accept-hook if
+			accept-csi? if
+				csi>control
+				false to accept-csi?
+			then
+			case
+				7F of
+					control H
+				then			\ fallthrough
+				csi of
+					true to accept-csi?
+				endof
+				control [ of
+					key upc case
+						[char] B of dup word>begin tuck - cursor-b endof
+						[char] F of word>end tuck swap - cursor-f endof
+						[char] D of
+							word>end over 2dup - >r r@ >save
+							r@ text-b
+							2 pick over - >r
+							accept-addr + over accept-addr + r> move
+							swap r> - swap
+						endof
+						[char] H of cut-word-begin endof
+						[char] [ of true to accept-csi? endof
+					endcase
+				endof
+				control A of
+					cursor-b 0
+				endof
+				control B of
+					dup 0> if
+						1 cursor-b char-
+					then
+				endof
+				control C of
+					2dup - cursor-f ."  aborting" abort
+				endof
+				control D of
+					swapdup < if
+						1 text-b
+						2dup - char- >r
+						accept-addr over + char+ dup char- r> move
+						>r char- r>
+					then
+				endof
+				control E of
+					2dup - cursor-f drop dup
+				endof
+				control F of
+					swapdup < if
+						1 cursor-f char+
+					then
+				endof
+				control H of
+					dup 0> if
+						bs emit
+						1 text-b
+						2dup - >r
+						accept-addr over + dup char- r> move
+						char- >r char- r>
+					then
+				endof
+				linefeed of
+					true to accept-done?
+				endof
+				control K of
+					tuck tuck - dup text-b >save dup
+				endof
+				carret of
+					true to accept-done?
+				endof
+				control R of
+					drop dup accept-addr over cr type
+				endof
+				control U of
+					cursor-b 0 over >save
+					text-b 0 0
+				endof
+				control W of
+					cut-word-begin
+				endof
+				control Y of
+					insert-save
+				endof
+
+				control Q of
+					key
+				then				\ fallthrough
+				>r over accept-len < if
+					2dup <> if
+						1 text-f
+						2dup - over accept-addr + dup char+ rot move
+					then
+					r@ emit
+					r@ over accept-addr + c!
+					char+ >r char+ r>
+				then r>
+			endcase
+		then
+		accept-done?
+	until
+	over >r - ?dup if cursor-f then r>
+;
+
+: accept	0 0 (accept) ;
+: expect	accept span ! ;
+
+
+
+: (status)
+	state-valid @ if ." * " then
+	depth (u.) type [char] ] [char] > state @ iff emit
+;
+
+defer status
+: noshowstack	['] (status) to status ;
+: showstack	['] .s to status ;
+
+noshowstack
+
+: stack-check	depth dup 0< if -4 throw clear else 0= if BEADFACEBEEFCAFE nip then then ;
+
+
+' (find) behavior value (default-find)
+' parse-word behavior value (default-parse-word)
+' new-def behavior value (default-new-def)
+
+: restore-defers
+	(default-find) to (find)
+	(default-parse-word) to parse-word
+	(default-new-def) to new-def
+	['] true to accept-hook
+;
+
+rstack-base value eff-rstack-base
+: rreset	r> eff-rstack-base rsp! >r ;		( -- )
+
+0 value last-my-self
+' (history-accept-hook) value query-accept-hook
+: query
+	my-self to last-my-self
+	['] accept-hook behavior >r query-accept-hook to accept-hook
+	-1 to history-ptr #line off
+	tib tib tib-size accept
+	r> to accept-hook
+	dup #tib ! space evaluate
+;
+
+defer set-default-ef
+: (quit)	set-default-ef restore-defers ([) begin untemp ."  ok" cr stack-check status space query again ;
+: quit		rreset (quit) ;
+
+: (abort")	rot if throw-$ 2! -2 throw then 2drop ;
+: abort"	[char] " parse (abort") ;>compile [char] " parse (sliteral) compile (abort") ;
+
+variable last-ef
+variable last-rsp
+variable srsp
+variable srsp-base
+variable error
+
+6 cells
+rsp-down? [if] negate [then]
+constant ef-pad
+
+: >catch	r> _1! r> dsp! _2! r> to my-self r> last-ef ! error @ ;
+: (catch)	last-ef @ >r my-self >r dsp@ cell+ >r >r rsp@ dup last-ef !
+			ef-pad + rsp! execute rsp@ ef-pad - rsp!
+			r> r> r> r> last-ef ! 3drop 0 ;
+: catch		['] >catch (catch) ;
+: prep-ef	_1! _1@ @ _1@ [ rsp-down? ] [if] /n - [else] na1+ [then] _2! _2@ ! _2@ ;
+: (throw)	?dup if error ! rsp@ last-rsp ! last-ef @ prep-ef rsp! then ;
+
+defer exception-catch
+defer backtrace
+
+: save-rs
+	last-rsp @ 0= if
+		srsp off srsp-base off
+		exit
+	then
+	[ rsp-down? ]
+	[if]
+		last-rsp @ rstack-base
+	[else]
+		rstack-base last-rsp @
+	[then]
+	over -				( from rsp-len )
+	dsp@ -10 na+		( from rsp-len rsp-high )
+	swapdup - tuck		( from rsp-len rsp-low rsp-high rsp-low )
+	[ rsp-down? ]
+	[if]
+		srsp ! srsp-base !
+	[else]
+		srsp-base ! srsp !
+	[then]
+	swap move
+;
+
+: .throw-$		( -- )
+	throw-$ 2@ 80 min type
+;
+
+: default-catch
+	save-rs rreset 2drop 2drop
+	error @
+	case
+		-1 of endof
+		-2 of .throw-$ endof
+		-4 of ." data stack underflow" endof
+		-A of ." division by zero" endof
+		-D of .throw-$ ." , unknown word" endof
+		-E of .throw-$ ."  is compile-only" endof
+		-13 of ." word name too long" endof
+		-1C of ." user interrupt" endof
+		-20 of ." invalid name argument" endof
+		-38 of ." malformed [if]-[else]-[then]" endof
+		-41 of ." bad locals syntax" endof
+		-42 of ." too many locals" endof
+		-80 of ." cannot find device" endof
+		-81 of ." cannot find method" endof
+		-82 of ." not enough memory" endof
+		-84 of ." already claim'ed" endof
+		-85 of ." not claim'ed" endof
+		-86 of ." already map'ed" endof
+		-87 of ." not map'ed" endof
+		-88 of ." missing property" endof
+		-89 of ." could not OPEN device " .throw-$ endof
+		-8A of ." memory does not exist" endof
+		-8B of ." cannot find dictionary entry" endof
+		-8C of ." no active package" endof
+		-8D of ." no current instance" endof
+		-8F of ." package finished" endof
+		-90 of ." wrong #returns from callback" endof
+		80000000 of exception-catch endof
+		." error: " dup s.
+	endcase
+	0 0 throw-$ 2!
+	srsp-base @ ?dup if
+		srsp @ backtrace
+	then
+	error off
+	last-my-self to my-self
+	clear rreset
+	(quit)
+;
+
+align 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , here ' default-catch , last-ef !
+
+: (set-default-ef)	[ last-ef @ ] literal last-ef ! ;
+' (set-default-ef) to set-default-ef
+
+: (exception)		last-ef @ 0= if (set-default-ef) then 80000000 (throw) ;
+: (unrecoverable)	(set-default-ef) 80000000 error ! last-ef @ rsp! ;
+
+' (throw) to throw
+
+defer bye
+:noname ; is bye
+
+
+defer (environment?)	( addr len -- false | x*i true )
+:noname 2drop false ; to (environment?)
+
+: environment?
+	2dup " /counted-string" $= if
+		2drop FF true exit
+	then
+	2dup " /hold" $= if
+		2drop #buf-size true exit
+	then
+	2dup " /pad" $= if
+		2drop pad-size true exit
+	then
+	2dup " address-unit-bits" $= if
+		2drop 8 true exit
+	then
+	2dup " floored" $= if
+		2drop false true exit
+	then
+	2dup " max-char" $= if
+		2drop 7F true exit
+	then
+	2dup " max-d" $= if
+		2drop FFFFFFFF 7FFFFFFF true exit
+	then
+	2dup " max-n" $= if
+		2drop 7FFFFFFF true exit
+	then
+	2dup " max-u" $= if
+		2drop FFFFFFFF true exit
+	then
+	2dup " max-ud" $= if
+		2drop FFFFFFFF FFFFFFFF true exit
+	then
+	2dup " tof-version" $= if
+		2drop 0 true exit
+	then
+	2dup " core" $= >r
+	2dup " double" $= r> or >r
+	2dup " double-ext" $= r> or >r
+	2dup " exception" $= r> or >r
+	2dup " exception-ext" $= r> or >r
+	2dup " string" $= r> or >r
+	2dup " tools" $= r> or if
+		2drop true true exit
+	then
+	2dup " core-ext" $= if
+		2drop false true exit
+	then
+	(environment?)
+;

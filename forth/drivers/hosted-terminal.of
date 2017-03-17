@@ -1,0 +1,20 @@
+" terminal" 2dup device-name device-type
+
+: open		true ;
+: close		;
+
+: read		( addr len -- actual )
+	0= (host-key?) not or if
+		drop 0
+	else
+		(host-key) swap c! 1
+	then
+;
+
+: write		( addr len -- actual )
+	>r r@
+	bounds ?do
+		i c@ (host-emit)
+	loop
+	r>
+;

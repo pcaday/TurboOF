@@ -1,0 +1,152 @@
+fcode-version2
+hex
+
+" atapi-disk" device-name
+
+headers
+
+: w@-be		dup 1+ c@ swap c@ bwjoin ;
+: w@-le		dup c@ swap 1+ c@ bwjoin ;
+: w!-be		>r wbsplit r@ c! r> 1+ c! ;
+: w!-le		>r wbsplit r@ 1+ c! r> c! ;
+: 3c@-be	>r r@ c@ 10 << r@ 1+ c@ 8 << r> 2+ c@ or or ;
+: 3c@-le	>r r@ c@ 2+ 10 << r@ 1+ c@ 8 << r> c@ or or ;
+: 3c!-be	>r dup 10 >> r@ c! dup 8 >> FF and r@ 1+ c! FF and r> 2+ c! ;
+: 3c!-le	>r dup 10 >> r@ 2+ c! dup 8 >> FF and r@ 1+ c! FF and r> c! ;
+: l@-be		>r r@ 3 + c@ r@ 2+ c@ r@ 1+ c@ r> c@ bljoin ;
+: l@-le		>r r@ c@ r@ 1+ c@ r@ 2+ c@ r> 3 + c@ bljoin ;
+: l!-be		>r lbsplit r@ c! r@ 1+ c! r@ 2+ c! r> 3 + c! ;
+: l!-le		>r lbsplit r@ 3 + c! r@ 2+ c! r@ 1+ c! r> c! ;
+
+
+external
+
+
+8000 instance value max-transfer
+200 instance value block-size
+false instance value removable?
+
+10 instance value packet-length
+
+create mode-sense-cmd 1A c, 0 c, 0 c, 0 c, A c, 0 c,  0 w, 0 l, 0 l,
+create read-capacity-cmd 25 c, 0 c, 0 c, 0 c, A c, 0 c,  0 w, 0 l, 0 l,
+create eject-cmd 1B c, 0 c, 0 c, 0 c, 2 c, 0 c,  0 w, 0 l, 0 l,
+create inject-cmd 1B c, 0 c, 0 c, 0 c, 3 c, 0 c,  0 w, 0 l, 0 l,
+
+10 buffer: small-buf
+
+( ======== )
+fload ata-dev-common.fci
+( ======== )
+
+: atapi-send-packet		( packet-addr packet-len buf-addr buf-len dma? in? -- actual-bytes )
+	my-unit " atapi-send-packet" ['] $call-parent catch if
+		2drop 2drop 2drop 2drop drop false
+	then
+;
+
+: get-sizes		( -- )
+	800 to block-size
+	7FFFFFFF to dev-#blocks
+
+	mode-sense-cmd packet-length small-buf C false true atapi-send-packet
+	if
+		small-buf 9 + 3c@-be ?dup if
+			to block-size
+			small-buf 5 + 3c@-be ?dup if
+				to dev-#blocks
+			then
+			exit
+		then
+	then
+	
+	read-capacity-cmd packet-length small-buf 8 false true atapi-send-packet
+	if
+		small-buf 4 + l@-be ?dup if
+			to block-size
+		then
+		small-buf l@-be ?dup if
+			to dev-#blocks
+		then
+	then
+;
+
+: r/w-blocks		( addr block# #blocks in? -- #read/written )
+	>r r@ if 8 else A then >r
+	over dev-#blocks swap - 0 max min
+	dup 0= if
+		3drop r> r> 2drop 0
+	else				( addr block# #blocks'  R: in? r/w-code )
+		dup block-size * -rot
+		small-buf 10 erase
+		r> 20 or small-buf c!
+		small-buf 7 + w!-be
+		small-buf 2 + l!-be		( addr #bytes  R: in? )
+	
+		small-buf packet-length 2swap true r> atapi-send-packet
+		block-size /
+	then
+;
+
+external
+
+: open			( -- okay? )
+	my-unit " identify-device" $call-parent
+	w@-le dup 3 and 0= if C else 10 then to packet-length
+	dup 80 and 0<> to removable?
+	
+	get-sizes
+	
+	1F00 and 0500 = if
+		800 to block-size
+	then
+	
+	FFFE block-size / 100 min block-size *
+	to max-transfer
+	
+	init-deblocker 0= if
+		false exit
+	then
+	init-disk-label 0= if
+		deblocker close-package false exit
+	then
+
+	true
+;
+
+: close			( -- )
+	disk-label close-package
+	deblocker close-package
+;
+
+\ Called while this node is still being created. Any modifications of
+\  instance words here become the default for those words.
+: init			( identify-block -- )
+	" atapi-disk" device-name
+	" block" device-type
+	drop
+;
+
+: read-blocks	( addr block# #blocks -- #read )
+	true r/w-blocks
+;
+
+: write-blocks	( addr block# #blocks -- #written )
+	false r/w-blocks
+;
+
+: eject			( -- )
+	removable? if
+		eject-cmd packet-length 0 0 false false atapi-send-packet drop
+	then
+;
+
+: inject		( -- )
+	removable? if
+		inject-cmd packet-length 0 0 false false atapi-send-packet drop
+	then
+;
+
+
+
+fcode-end

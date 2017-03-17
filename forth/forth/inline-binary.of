@@ -1,0 +1,9 @@
+: :binary
+	source drop >r
+	>in @ dup cell+ >in !
+	create
+		>in @ r@ + aligned tuck ,
+		r@ + l@-be + r> - >in !
+	does>
+		@
+;

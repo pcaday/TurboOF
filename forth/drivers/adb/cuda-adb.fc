@@ -1,0 +1,59 @@
+fcode-version2
+hex
+
+" adb" encode-string 2dup 2dup
+" name" property
+" device_type" property
+" AAPL,connector" property
+1 encode-int " #address-cells" property
+0 encode-int " #size-cells" property
+
+external
+
+: decode-unit   1 tokenizer[ 608 emit-byte ]tokenizer ;
+: encode-unit   (u.) ;
+
+C buffer: adb-cmd-buf
+
+: (send)		>r adb-cmd-buf r> tokenizer[ 607 emit-byte ]tokenizer " write" drop ;
+: send			(send) 0 0 tokenizer[ 607 emit-byte ]tokenizer " read" drop ;
+
+: write-reg		( addr len reg# dev# -- )
+	4 << 8 or or 0
+	adb-cmd-buf dup >r c!
+	r@ 1+ c!
+	r> 2+ swap 8 min dup >r move
+	r> 2+ send
+;
+
+: read-reg		( addr len reg# dev# -- actual )
+	4 << C or or 0
+	adb-cmd-buf tuck c! 1+ c!
+	2 (send)
+	adb-cmd-buf C
+	tokenizer[ 607 emit-byte ]tokenizer " read"
+	dup 1 > if
+		adb-cmd-buf dup 1+ c@ E and 0= if
+			3 + >r 3 - min tuck r> -rot move exit
+		then drop
+	then
+	3drop 0
+;
+
+: flush			( dev# -- )
+	adb-cmd-buf 0 over c!
+	>r 4 << 1 or r> 1+ c!
+	2 send
+;
+
+: reset			( -- )
+	" "(010100)" adb-cmd-buf swap move 3 send 1 ms
+	adb-cmd-buf off 2 send d# 20 ms
+;
+
+fload adb-controller.fci
+
+: open			true ;
+: close			;
+
+fcode-end

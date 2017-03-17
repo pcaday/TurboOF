@@ -1,0 +1,75 @@
+fcode-version2
+hex
+
+" adb" encode-string 2dup 2dup
+" name" property
+" device_type" property
+" AAPL,connector" property
+
+" pmu" encode-string " compatible" property
+
+1 encode-int " #address-cells" property
+0 encode-int " #size-cells" property
+
+
+: decode-unit   1 tokenizer[ 608 emit-byte ]tokenizer ;
+: encode-unit   (u.) ;
+
+
+B buffer: cmd-buf
+0 value #opens
+
+: pmu-adb-op	( len -- addr len )
+	dup cmd-buf			( len len buf )
+	char+ 0 over c!		( len len ptr )
+	char+ c!			( len )
+	3 + cmd-buf swap " adb-op" $call-parent
+;
+
+: read-reg		( addr len reg# dev# -- actual )
+	4 << C or or cmd-buf c!
+	
+	0 pmu-adb-op
+	swap >r				( addr len actual )
+	min					( addr actual )
+	tuck r> -rot		( actual op-buf addr actual )
+	move
+;
+
+: write-reg		( addr len reg# dev# -- )
+	4 << 8 or or cmd-buf c!
+	
+	cmd-buf 3 ca+ swap dup >r 	( addr cmd-area len  R: len )
+	move
+	r> pmu-adb-op 2drop
+;
+
+: flush			( dev# -- )
+	4 << 1 or cmd-buf c!
+	
+	0 pmu-adb-op 2drop
+;
+
+: reset			( -- )
+	cmd-buf 4 erase
+	0 pmu-adb-op 2drop
+	d# 1500 ms					\ Let trackpad initialize
+;
+
+: open			( -- successful? )
+	#opens dup 1+ to #opens
+	0= if
+		" "(21)" " write" $call-parent drop		\ Turn off autopoll (no reply)
+		" clear-ints" $call-parent
+	then
+	true
+;
+
+: close
+	#opens 1- to #opens
+;
+
+
+fload adb-controller.fci
+
+fcode-end

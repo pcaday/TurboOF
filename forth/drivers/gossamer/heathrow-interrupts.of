@@ -1,0 +1,15 @@
+F3000000 constant heathrow-base
+24 constant heathrow+>mask-1
+14 constant heathrow+>mask-2
+28 constant heathrow+>clear-1
+18 constant heathrow+>clear-2
+
+: no-interrupts		( -- )
+	heathrow-base
+	0 over heathrow+>mask-1 + xl!
+	0 over heathrow+>mask-2 + xl!
+	-1 over heathrow+>clear-1 + xl!
+	-1 over heathrow+>clear-2 + xl!
+	0 over heathrow+>mask-1 + xl!
+	0 swap heathrow+>mask-2 + xl!
+;

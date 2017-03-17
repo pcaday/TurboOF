@@ -1,0 +1,58 @@
+headers
+
+
+
+0 instance value deblocker
+0 instance value disk-label
+0 instance value offset.hi
+0 instance value offset.lo
+
+0 instance value dev-#blocks
+
+: init-deblocker	( -- okay? )
+	" " " deblocker" $open-package dup to deblocker
+	if
+		true
+	else
+		." can't open deblocker" cr false
+	then
+;
+
+: init-disk-label	( -- okay? )
+	my-args " disk-label" $open-package dup to disk-label
+	if
+		0 0 " offset" disk-label $call-method
+		to offset.hi to offset.lo
+		true
+	else
+		." can't open disk-label" cr false
+	then
+;
+
+external
+
+: seek			( pos.lo pos.hi -- status )
+	offset.lo offset.hi d+
+	" seek" deblocker $call-method
+;
+
+: read			( addr len -- actual )
+	" read" deblocker $call-method
+;
+
+: write			( addr len -- actual )
+	" write" deblocker $call-method
+;
+
+: load			( addr -- size )
+	" load" disk-label $call-method
+;
+
+: ls-parts		( -- )
+	" ls-parts" disk-label $call-method
+;
+
+: dir			( addr len -- )
+	" dir" disk-label $call-method
+;
+

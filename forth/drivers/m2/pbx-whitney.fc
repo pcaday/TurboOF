@@ -1,0 +1,62 @@
+fcode-version2
+hex
+
+
+headers
+
+" pbx-whitney" device-name
+" mac-io" device-type
+1 encode-int " #address-cells" property
+1 encode-int " #size-cells" property
+
+10.0000 constant io-size
+
+my-space io-size 2dup reg " map-in" $call-parent
+dup encode-int " AAPL,address" property		\ don't delete me!
+constant whitney-base
+
+0 encode-int my-space encode-int encode+ io-size encode-int encode+
+" ranges" property
+
+\ Translates I/O regions to their real addresses,
+\  including the correct mode for mapping.
+
+: get-region		( addr len -- addr' len' mode' true | addr false )
+	over -1 = if
+		nip case
+			0 of 6000.0000 0010.0000 52 true endof		\ ECSC framebuffer: Wimg
+			10 of 8000.0000 0400.0000 6A true endof		\ TREX socket 0 memory window
+			11 of 8400.0000 0400.0000 6A true endof		\ TREX socket 0 I/O window
+			12 of 8800.0000 0400.0000 6A true endof		\ TREX socket 1 memory window
+			13 of 8C00.0000 0400.0000 6A true endof		\ TREX socket 1 I/O window
+			true abort" invalid memory region"
+		endcase
+	else
+		drop whitney-base + false
+	then
+;
+
+external
+
+: open			true ;
+: close			;
+
+: decode-unit	1 tokenizer[ 608 emit-byte ]tokenizer ;
+: encode-unit	(u.) ;
+
+: map-in
+	get-region if " (map-in)" $call-parent then
+;
+
+: map-out
+	get-region nip if " map-out" $call-parent then
+;
+
+: dma-alloc		" dma-alloc" $call-parent ;
+: dma-free		" dma-free" $call-parent ;
+: dma-sync		" dma-sync" $call-parent ;
+: dma-map-in	" dma-map-in" $call-parent ;
+: dma-map-out	" dma-map-out" $call-parent ;
+
+
+fcode-end

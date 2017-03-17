@@ -1,0 +1,384 @@
+unselect-dev
+
+
+: (ci-check-#args)			( actual-#args expected-#args -- )
+	<> abort" incorrect # of args for service"
+;
+
+: (ci-package-to-path)		( buflen buf phandle -- actual-len )
+	get-path 2swap swap f>c$-max
+;
+
+: (ci-claim)				( align size virt -- baseaddr )
+	rot dup if
+		nip
+	else
+		>r swap r>
+	then
+	claim-mem
+;	
+
+: (ci-interpret)			( argP...arg1 cmd #args --
+									retQ...ret1 catch-result #rets )
+	>r depth r@ - >r
+	c>f$ ['] eval catch dup if
+		rdrop r> swap >r x*drop drop
+		r> 1
+	else
+		depth r> - rdrop
+	then
+	stuff-ci-rets go-from-enter
+;
+
+: (ci-do-method)			( args ihandle method-addr method-len --
+										rets false | args 0 true | args -1 true )
+	push-instance
+	rot dup to my-self
+	i>pack @ find-method if
+		catch if
+			0 true
+		else
+			false
+		then
+	else
+		-1 true
+	then
+	pop-instance
+;
+
+dev /openprom
+new-child
+" ci-services" device-name
+
+active-package to ci-node
+
+
+\ ** CI service methods **
+\
+\ The arguments are put on the stack in REVERSE order;
+\  that is, arg1 is on the bottom, argn on the top.
+\  Return values are handled similarly.
+\
+\ The stack diagrams reflect this reverse ordering:
+\  in: argn ... arg1
+\ out: retn ... ret1
+
+\  in: [string]name
+\ out: missing?
+: test
+	1 (ci-check-#args)
+	c>f$ ci-node find-method
+	dup if nip then not
+	1
+;
+
+\  in: phandle
+\ out: phandle
+: peer
+	1 (ci-check-#args)
+	dup if
+		n>next @
+	else
+		drop root
+	then
+	1
+;
+
+\  in: phandle
+\ out: phandle
+: child
+	1 (ci-check-#args)
+	n>child @
+	1
+;
+
+\  in: phandle
+\ out: phandle
+: parent
+	1 (ci-check-#args)
+	n>parent @				\ will be 0 for root node
+	1
+;
+
+\  in: ihandle
+\ out: phandle
+: instance-to-package
+	1 (ci-check-#args)
+	i>pack @
+	1
+;
+
+\  in: [string]name phandle
+\ out: proplen
+: getproplen
+	2 (ci-check-#args)
+	>r c>f$ r> (get-package-property) if
+		-1
+	else
+		p>plen @
+	then
+	1
+;
+
+\  in: buflen [address]buf [string]name phandle
+\ out: size
+: getprop
+	4 (ci-check-#args)
+	>r c>f$ r> get-package-property if
+		2drop -1
+	else			( buflen buf pdata pdlen )
+		2swap -rot umin >r r@ move r>
+	then
+	1
+;
+
+\  in: [address]buf [string]previous phandle
+\ out: flag
+: nextprop
+	3 (ci-check-#args)
+	swap dup 0<> if
+		dup c@
+	else
+		false
+	then				( buf phandle previous previous-nonempty? )
+	if
+		c>f$ rot (get-package-property) if
+			0 swap c!
+			-1 1 exit
+		then			( buf prop )
+		p>next @ dup 0= if
+			drop 0 swap c!
+			0 1 exit
+		then
+	else
+		drop n>prop @ dup 0= if
+			2drop 0 1 exit
+		then
+	then				( buf next-prop )
+	dup p>name swap p>nlen @ 1F umin rot f>c$
+	1 1
+;
+
+\  in: len [address]buf [string]name phandle
+\ out: size
+: setprop
+	4 (ci-check-#args)
+	swap c>f$
+	{ len buf phandle name-addr name-len }
+	phandle /options = if
+		name-addr name-len ev-kind nip case
+			['] ev-int<-> of
+				len /n <> if -1 1 exit then
+				buf @-be (u.)
+			endof
+			['] ev-user<-> of
+				buf len
+			endof
+			buf len 1- rot
+		endcase
+		name-addr name-len $setenv
+		name-addr name-len phandle (get-package-property) if
+			-1
+		else
+			p>plen @
+		then
+	else
+		buf len name-addr name-len phandle (property)
+		len
+	then
+	1
+;
+
+\  in: buflen [address]buf [string]device-spec
+\ out: length
+: canon
+	3 (ci-check-#args)
+	c>f$ (find-phandle) if
+		(ci-package-to-path)
+	else
+		2drop -1
+	then
+	1
+;
+
+\  in: [string]device-spec
+\ out: phandle
+: finddevice
+	1 (ci-check-#args)
+	c>f$ (find-phandle) not if
+		-1
+	then
+	1
+;
+
+\  in: buflen [address]buf ihandle
+\ out: length
+: instance-to-path
+	3 (ci-check-#args)
+	get-instance-path 2swap swap f>c$-max
+	1
+;
+
+\  in: buflen [address]buf phandle
+\ out: length
+: package-to-path
+	3 (ci-check-#args)
+	(ci-package-to-path)
+	1
+;
+
+\  in: stack-argP...stack-arg1 ihandle [string]method
+\ out: stack-retQ...stack-ret1 catch-result
+: call-method
+	>r r@ 2 u< if abort then
+
+	depth r@ - >r				( args ihandle method R: #args orig-depth )
+	c>f$ rot ['] $call-method catch dup if
+		rdrop r> swap >r x*drop drop r> 1
+	else
+		depth r> - rdrop
+	then
+;
+
+\  in: [string]device-spec
+\ out: ihandle
+: open
+	1 (ci-check-#args)
+	c>f$ open-dev
+	1
+;
+
+\  in: ihandle
+\ out:
+: close
+	1 (ci-check-#args)
+	close-dev
+	0
+;
+
+\  in: len [address]addr ihandle
+\ out: actual
+: read
+	3 (ci-check-#args)
+	>r swap r>
+	"read" (ci-do-method)
+	if chunk then
+	1
+;
+
+\  in: len [address]addr ihandle
+\ out: actual
+: write
+	3 (ci-check-#args)
+	>r swap r>
+	"write" (ci-do-method)
+	if chunk then
+	1
+;
+
+\  in: pos.lo pos.hi ihandle
+\ out: status
+: seek
+	3 (ci-check-#args)
+	"seek" (ci-do-method)
+	if 3drop -1 then
+	1
+;
+
+\  in: align size [address]virt
+\ out: [address]baseaddr
+: claim
+	3 (ci-check-#args)
+	['] (ci-claim) catch if
+		3drop -1
+	then
+	1
+;
+
+\  in: size [address]virt
+\ out:
+: release
+	2 (ci-check-#args)
+	swap ['] release-mem catch if
+		2drop
+	then
+	0
+;
+
+\  in: [string]bootspec
+\ out:
+: boot
+	1 (ci-check-#args)
+	c>f$ set-next-boot
+	stop
+	reset-all
+	abort
+;
+
+\  in:
+\ out:
+: enter
+	0 (ci-check-#args)
+	ci-array ci-struct>nargs off
+	false to gfe-return
+	['] (quit) to ((enter-action))
+	['] go-from-enter to go
+	(enter)
+	0
+;
+
+\  in:
+\ out:
+: exit
+	0 (ci-check-#args)
+	stop quit
+;
+
+\  in: alen [address]args [address]entry size [address]virt
+\ out:
+: chain
+	5 (ci-check-#args)
+	stop
+	false to forth-load?
+	swap ['] release-mem catch if 2drop then	( alen args entry )
+	-rot
+	swap >r here tuck r@ move r@ allot r>
+	(init-program) if abort then
+	state-valid on
+	go-start-client
+	stop quit
+;
+
+\  in: stack-argP...stack-arg1 [string]cmd
+\ out: stack-retQ...stack-ret1 catch-result
+: interpret
+	dup 0= if abort then
+	false to gfe-return
+	['] (ci-interpret) to ((enter-action))
+	(enter)
+;
+
+\  in: [address]newfunc
+\ out: [address]oldfunc
+: set-callback
+	1 (ci-check-#args)
+	(ci-set-callback)
+	1
+;
+
+\  in:
+\ out: ms
+: milliseconds
+	0 (ci-check-#args)
+	get-msecs 1
+;
+
+child-end
+unselect-dev
+
+
+: z"
+	[char] " parse to-"buf over + 0 swap c!
+;>compile
+	true abort" not valid for compiling"
+;

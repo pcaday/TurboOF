@@ -1,0 +1,242 @@
+fcode-version2
+hex
+headers
+
+" via-pmu" device-name
+" pmu" device-type
+" via-pmu-m2" encode-string " compatible" property
+
+my-space 4000 2dup reg " map-in" $call-parent
+dup constant reg-base encode-int " AAPL,address" property
+
+
+1400 constant shift
+1600 constant actl
+1A00 constant iflag
+1C00 constant ien
+2000 constant data-b
+
+2 constant ack
+4 constant req
+10 constant shift-dir
+d# 32 constant timeout-ms
+
+0 value #opens
+
+
+: reg@			( off -- byte )
+	reg-base + rb@
+;
+
+: reg!			( byte off -- )
+	reg-base + rb!
+;
+
+
+: input			actl reg@ shift-dir not and actl reg! ;
+: output		actl reg@ shift-dir or actl reg! ;
+: req+			data-b reg@ req not and data-b reg! ;
+: req-			data-b reg@ req or data-b reg! ;
+
+: wait-ack+		( -- successful? )
+	get-msecs
+	begin
+		data-b reg@ ack and if
+			drop true exit
+		then
+		get-msecs over - timeout-ms u>=
+	until
+	drop false
+;
+
+: wait-ack-		( -- successful? )
+	get-msecs
+	begin
+		data-b reg@ ack and 0= if
+			drop true exit
+		then
+		get-msecs over - timeout-ms u>=
+	until
+	drop false
+;
+
+: wait-int		( -- successful? )
+	get-msecs
+	begin
+		iflag reg@ 10 and if
+			drop true exit
+		then
+		get-msecs over - timeout-ms u>=
+	until
+	drop false
+;
+
+: read-byte		( -- byte true | false )
+	input
+	shift reg@ drop
+	req+
+	wait-ack- req- if
+		wait-ack+ if
+			shift reg@ true
+		else
+			false
+		then
+	else
+		false
+	then
+;
+
+: write-byte	( byte -- successful? )
+	output
+	shift reg!
+	req+
+	wait-ack- req- if
+		wait-ack+
+	else
+		false
+	then
+;
+
+: <alarms-off	tokenizer[ 60B emit-byte ]tokenizer " <alarms-off" ;
+: alarms>		tokenizer[ 60B emit-byte ]tokenizer " alarms>" ;
+
+external
+
+: read			( addr len -- actual )
+	<alarms-off >r
+	0 -rot
+	bounds ?do
+		read-byte if
+			i c! 1+
+		else
+			leave
+		then
+	loop
+	r> alarms>
+;
+
+: discard		( nbytes -- )
+	0 ?do
+		read-byte if
+			drop
+		else
+			leave
+		then
+	loop
+;
+
+: read-counted		( addr len -- actual )
+	read-byte if
+		2dup < if				( addr len expected extra? )
+			over - >r			( addr len  R: extra )
+			tuck read 2dup =	( len actual successful? R: extra )
+			if
+				r> discard drop
+			else
+				nip
+			then
+		else
+			nip read
+		then
+	else
+		2drop 0
+	then
+;
+
+: write			( addr len -- actual )
+	0 -rot
+	bounds ?do
+		i c@ write-byte if
+			1+
+		else
+			leave
+		then
+	loop
+;
+
+headers
+
+10 constant ci-tries
+variable ci-buf
+
+external
+
+: clear-ints		( -- )
+	ci-tries 0 ?do
+		90 iflag reg!
+		" "(78)" write drop			\ Read pending interrupts
+		ci-buf 1 read-counted drop
+		ci-buf c@ 0= ?leave
+	loop
+;
+
+: open			( -- successful? )
+	#opens dup 1+ to #opens 0= if
+		7F ien reg!
+		actl reg@ C or actl reg!
+		req-
+		" "(7010)" write drop		\ Only let ADB interrupts through (no reply expected)
+		clear-ints
+	then
+	true
+;
+
+: close			( -- )
+	#opens 1- to #opens
+;
+
+: shut-down		( -- )
+	" "(7E)MATT" write drop
+	1 discard
+	begin again
+;
+
+: reset-all		( -- )
+	" "(709C)" write drop
+	1 ms
+	" "(D0)" write drop
+	begin again
+;
+
+
+
+
+headers
+
+10 buffer: adb-cmd-buf
+10 buffer: adb-int-buf
+0 value #adb-int-buf
+
+: recv-adb-int		( -- )
+	" "(78)" write drop
+	adb-int-buf 10 read-counted to #adb-int-buf
+;
+
+: process-adb-ints	( -- )
+	begin
+		wait-int
+	while
+		90 iflag reg!
+		recv-adb-int
+		#adb-int-buf 2 >= if
+			exit
+		then
+	repeat
+;
+
+external
+
+: adb-op		( addr len -- addr len )
+	adb-cmd-buf 20 over c!
+	char+ 2dup c!
+	char+ swap dup >r move
+	
+	adb-cmd-buf r> 2+ write drop
+	process-adb-ints
+	
+	adb-int-buf 2 ca+ #adb-int-buf 2- 0 max
+;
+
+
+
+fcode-end

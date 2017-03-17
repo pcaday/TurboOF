@@ -1,0 +1,160 @@
+( ---- This is a (not-completed) driver for NCR-5830-based SCSI HBAs ---- )
+
+2 encode-int " #address-cells" property
+0 encode-int " #size-cells" property
+
+headers
+
+0 constant data					\ DATA
+1 constant initiator-cmd		\ ICOM
+2 constant mode					\ MODE
+3 constant target-cmd			\ TCOM
+4 constant signals				\ IDSTAT
+4 constant select-enable
+5 constant status				\ DMSTAT
+5 constant dma-send
+6 constant data-in-latched		\ TRCV
+6 constant dma-target-rcv
+7 constant reset-irq			\ IRCV
+7 constant dma-initiator-rcv
+
+
+: us		tokenizer[ 600 emit-byte ]tokenizer ;
+
+: clear-ints			( -- )
+	reset-irq reg@ drop
+;
+
+false value resetting?
+0 value reset-done-time
+d# 5000 constant reset-ms
+
+: reset-wait			( -- )
+	resetting? if
+		." waiting for devices to initialize "
+		begin
+			get-msecs reset-done-time u>=
+		until
+	then
+	false to resetting?
+;
+
+
+external
+
+
+7 constant my-id
+0 instance value target-id
+0 instance value target-lun
+
+
+headers
+
+: my-id-bit				( -- byte )
+	1 my-id <<
+;
+
+10 constant arb-timeout
+
+: (arbitrate)			( -- won? )
+	." arbitrating for " target-id .
+	
+	0 initiator-cmd reg!		\ Clear phase bits
+	0 target-cmd reg!
+	
+	my-id-bit data reg!			\ Broadcast my ID
+	1 mode reg!					\  and start arbitration
+	
+	arb-timeout begin			\ Wait for arbitration to begin
+		1- dup
+	while
+		initiator-cmd reg@ 40 and
+	until
+		drop
+	else
+		." bus not free. " exit		\ 0 already on stack
+	then
+	
+	3 us
+	
+	initiator-cmd reg@ 20 and if
+		." lost arbitration (1). " false exit
+	then
+	
+	data reg@ my-id-mask 2* >= if
+		." lost arbitration to higher device. " false exit
+	then
+	
+	C initiator-cmd reg!
+	initiator-cmd reg@ 20 and if
+		." lost arbitration (2). " false exit
+	then
+	
+	." done. "
+	
+	2 us
+	true
+;
+
+: arbitrate					( -- won? )
+	(arbitrate) dup not if
+		0 mode reg!				\ Clean up after arbitration
+		0 initiator-cmd reg!
+	then
+;
+
+: select					( -- successful? )
+	
+;
+
+external
+
+
+: reset					( -- )
+	." RESETing SCSI bus" cr
+
+	80 initiator-cmd reg!
+	d# 100 ms
+	0 initiator-cmd reg!
+	clear-ints
+	
+	get-msecs reset-ms + to reset-done-time
+;
+
+: open-hardware			( -- okay? )
+	(open-hardware) 0= if
+		false exit
+	then
+	
+	0 initiator-cmd reg!
+	0 mode reg!				\ No parity checking for now
+	0 target-cmd reg!
+	0 signals reg!
+	0 select-enable reg!
+	clear-ints
+	
+	reset
+	true
+;
+
+: reopen-hardware		( -- okay? )
+	true
+;
+
+: close-hardware		( -- )
+	wait-ready
+	(close-hardware)
+;
+
+: reclose-hardware		( -- )
+
+;
+
+: set-address			( target-lun target-id -- )
+	to target-id
+	to target-lun
+;
+
+: execute-command		( data-addr data-len dir cmd-addr cmd-len -- hw-result | statbyte false )
+	reset-wait
+;

@@ -1,0 +1,9 @@
+fcode-version2
+hex
+
+" singer2" device-name
+" sound" device-type
+
+my-space 2000 reg
+
+fcode-end

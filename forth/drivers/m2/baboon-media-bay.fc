@@ -1,0 +1,10 @@
+fcode-version2
+hex
+
+" media-bay" device-name
+" baboon-media-bay" encode-string " compatible" property
+
+my-space 10 reg
+
+
+fcode-end

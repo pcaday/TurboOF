@@ -1,0 +1,12 @@
+fcode-version2
+hex
+
+" icr" device-name
+2A000 4 reg
+
+new-device
+	" programmer-switch" device-name
+	7 encode-int " AAPL,interrupts" property
+finish-device
+
+fcode-end

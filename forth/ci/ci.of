@@ -1,0 +1,270 @@
+( ======== )
+false value ci-debug?
+( ======== )
+
+false value forth-load?
+0 value entrypoint			\ For binary loading
+0 value load-addr			\ For Forth loading
+0 value load-size			\ For Forth loading
+
+\ if true, sets entrypoint to 0 in stop, so that when a client
+\  program is halted, it must be re-LOADed before running again.
+false constant force-client-reload?
+
+true value user-interface?
+
+0 value ci-node
+0 value ci-array
+
+struct
+	/n field ci-struct>service
+	/n field ci-struct>nargs
+	/n field ci-struct>nrets
+	/n field ci-struct>args
+drop
+
+: ci-struct>rets		( cistruct -- addr )
+	dup ci-struct>nargs @ na+ ci-struct>args
+;
+
+false value gfe-return
+
+80 constant #cb-args-buf
+#cb-args-buf buffer: cb-args-buf
+0 value callback-addr
+true value enable-callbacks?
+
+defer go
+defer stop
+
+defer (init-program)
+defer (go)
+defer (go-from-enter)
+defer (go-from-exception)
+defer (($callback))
+defer (ci-set-callback)
+defer in-client! ' drop to in-client!
+defer ((enter-action))
+defer ((enter))
+
+
+: check-valid		( -- )
+	state-valid @ 0= abort" client state not valid"
+;
+
+: init-program		( -- )
+	forth-load? not if
+		state-valid @ if
+			."  note, client program was previously loaded"
+			stop
+		then
+		entrypoint 0= abort" no client program loaded"
+		entrypoint 0 0 (init-program) abort" INIT-PROGRAM failed"
+		state-valid on
+	then
+;
+
+: go-start-client			( -- )
+	forth-load? if
+		load-addr load-size evaluate
+		state-valid off
+		false to forth-load?
+	else
+		check-valid
+		false to user-interface?
+		0 to active-package
+		0 to my-self
+		true in-client! (go) false in-client!
+		abort" GO failed"
+		stop
+	then
+;
+
+' go-start-client to go
+
+: go-from-enter			( -- )
+	false to user-interface?
+	gfe-return
+	true in-client! (go-from-enter) false in-client!
+	stop
+	abort" GO failed"
+;
+
+: go-from-exception		( -- )
+	true in-client! (go-from-exception) false in-client!
+	stop
+	abort" GO failed"
+;
+
+: (stop)			( -- )
+	rstack-base to eff-rstack-base
+	set-default-ef
+	state-valid off
+	0 to callback-addr
+	true to user-interface?
+	['] go-start-client to go
+	0 to active-package
+	0 to my-self
+	[ force-client-reload? ] [if]
+		0 to entrypoint
+	[then]
+	restore-defers
+;
+
+' (stop) to stop
+
+: stuff-ci-rets			( retn...ret1 nrets -- )
+	dup ci-array ci-struct>nrets @ umin			( retn...ret1 n n-actual )
+	2>r r@ ci-array ci-struct>nrets !
+	ci-array ci-struct>rets r@ x*!				( retn...ret{n-#extra+1} R: n n-actual )
+	2r> - x*drop
+;
+
+: ci-handler			( cistruct -- flag )
+	false in-client!
+	to ci-array
+	true to enable-callbacks?
+	rsp@ [ rsp-down? ] [if] cell- [else] cell+ [then] to eff-rstack-base
+	
+	ci-array ci-struct>service @ c>f$			( service-addr service-len )
+	
+	ci-debug? if
+		space 2dup type space
+	then
+	
+	ci-node find-method not if
+		true exit
+	then >r										( R: service-xt )
+
+	ci-array dup ci-struct>args
+	swap ci-struct>nargs @ >r r@ x*@			( argn...arg1  R: service-xt n )
+	r> r> catch
+	if
+		drop ci-array ci-struct>nargs @ x*drop
+		true exit
+	else
+		dup -1 = if
+			drop
+		else
+			stuff-ci-rets
+		then
+		false
+	then
+	false to user-interface?
+	true in-client!
+;
+
+' ((enter-action)) to ((enter))
+
+: (enter)	true to user-interface? ((enter)) ;		( -- )
+
+0 value enter-throw-code
+: (enter-exception)		( -- )
+	enter-throw-code throw
+;
+
+: (client-exception)	( throw-code -- )
+	to enter-throw-code
+	['] (enter-exception) to ((enter-action))
+	(enter)						\ Should not return
+	go
+;
+
+: client-exception		( throw-code -- )
+	false in-client!
+	['] go-from-exception to go
+	false to enable-callbacks?
+	(client-exception)
+;
+
+: callback-exception	( throw-code -- )
+	false in-client!
+	
+	['] go-from-enter to go
+	true to gfe-return
+	
+	ci-array ci-struct>nrets off
+	
+	user-interface? if
+		throw
+	else
+		(client-exception)
+	then
+;
+
+: ((ci-set-callback))	( newfunc -- oldfunc )
+	callback-addr swap to callback-addr
+	true to enable-callbacks?
+;
+
+' ((ci-set-callback)) to (ci-set-callback)
+
+
+: .ci-struct			( ci-struct -- )
+	>r cr
+	." service: " r@ ci-struct>service @ c>f$ type cr
+	."   nargs: " r@ ci-struct>nargs ? cr
+	."   nrets: " r@ ci-struct>nrets ? cr
+	."    args: "
+	r@ ci-struct>args r@ ci-struct>nargs @ 0 ?do
+		dup @ .cell space cell+
+	loop drop cr
+	
+	."    rets: "
+	r@ ci-struct>rets r> ci-struct>nrets @ 0 ?do
+		dup @ .cell space cell+
+	loop drop cr
+;
+
+: .cur-cis				( -- )
+	ci-array .ci-struct
+;
+
+
+: ($callback)		( argn...arg1 nargs service-addr service-len max-nrets
+							-- retn...ret2 nrets-1 )
+	0 0
+	{ nargs service-addr service-len max-nrets cb-array cb-array-len }
+
+	service-len 20 u>= abort" service name too long [31 chars max]"
+	callback-addr 0= abort" no callback"
+	enable-callbacks? not abort" callbacks disabled"
+	
+	nargs max-nrets + 3 + cells 20 + to cb-array-len
+	cb-array-len alloc-mem to cb-array
+
+	cb-array cb-array-len erase
+	
+	cb-array cb-array-len + 20 - dup cb-array ci-struct>service !
+	service-addr service-len rot f>c$
+	nargs cb-array tuck ci-struct>nargs !
+	max-nrets over ci-struct>nrets !
+	ci-struct>args nargs x*!							( )
+	
+	cb-array .ci-struct
+	
+	cb-array callback-addr
+	true in-client! (($callback)) false in-client!
+	abort" could not run callback"
+	
+	." callback returned"
+	
+	cb-array dup ci-struct>rets swap ci-struct>nrets @ >r
+	r@ x*@ r> 1-								( retn...ret1 nrets-1 )
+	
+	cb-array cb-array-len free-mem
+	swap throw
+;
+
+: $callback			6 ($callback) ;
+
+
+: (callback)			( cb-str cb-len args-str args-len -- )
+	cb-args-buf 7F f>c$-max drop
+	cb-args-buf 1 2swap
+	1
+	($callback) drop
+;
+
+: sync			" sync" 0 0 (callback) ;
+: callback		parse-word dup 0= if exit then parse-line (callback) ;

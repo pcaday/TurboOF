@@ -1,0 +1,839 @@
+: ~		;
+
+: debug		<debug> ; immediate
+: dump		<dump> ; immediate
+
+: drop		_1! ;
+: 2drop		_1! _2! ;
+: nip		_1! _2! _1@ ;
+: dup		_1! _1@ _1@ ;
+: swap		_1! _2! _1@ _2@ ;
+: over		_1! _2! _2@ _1@ _2@ ;
+: tuck		_1! _2! _1@ _2@ _1@ ;
+: 2dup		_1! _2! _2@ _1@ _2@ _1@ ;
+: pick3		>r >r _1! _2! _2@ _1@ r> r> _2@ ;
+
+: iff		>r tuck xor r> and xor ;
+
+: begin		r> dup >r >r ;
+: again		r> drop r> dup >r >r ;
+: until		_2! r> r> _2@ >r tuck r> iff swap >r >r ;
+: unloop	r> r> drop >r ;
+: [r>]		r> r> r> _1! >r >r _1@ ;
+: [>r]		_1! r> r> _1@ >r >r >r ;
+
+: 0		dup dup < ;
+
+: h#-init
+	dup dup =
+	dup dup + -
+	dup dup + dup +
+	tuck dup + swap -
+	over dup *
+; immediate h#-init
+
+: h#c
+	over - over - over -
+	2dup < pick3 and -
+;
+
+: (h#)
+	in 0 >r
+	begin
+		h#c pick3
+		[r>] swap << + [>r]
+		dup dup + in tuck =
+	until unloop
+	drop r>
+;
+
+: h#		(h#) _n ; immediate
+
+: '<first-prim>	h# 6 ;
+
+: /n		h# 4 ;
+: /c		h# 1 ;
+: cell+		/n + ;
+: char+		/c + ;
+: char-		/c - ;
+: cells		/n * ;
+: chars		; immediate
+: aligned	h# 3 + h# FFFFFFFFFFFFFFFC and ;
+
+: data-base	0 initvec@ ;
+: bd-base	h# 1 initvec@ ;
+: ftext-base	h# 4 initvec@ ;
+
+: #hash		h# 40 ;
+: hash-mask	#hash h# 1 - ;
+
+: data		data-base ;
+: list		data-base cell+ ;
+: nbuf		data-base h# 3 cells + ;
+: nbuflen	data-base h# B cells + ;
+: hashhead	data-base h# C cells + ;
+: data-init	hashhead #hash cells + data ! ; immediate data-init
+: list-init	0 list ! ; immediate list-init
+: hash-init	hashhead #hash cells 0 fill ; immediate hash-init
+
+: >len		; immediate
+: >type		char+ ;
+: >link		cell+ ;
+: >next		h# 2 cells + ;
+: >interp	h# 3 cells + ;
+: >comp		h# 4 cells + ;
+: >pack		h# 5 cells + ;
+: >name		h# 6 cells + ;
+: dprev		>next @ ;
+
+: ,			data @ tuck ! cell+ data ! ;
+: d>len,	data @ tuck c! char+ data ! ;
+: d>type,	data @ tuck c! char- cell+ data ! ;
+: d>name,	>r data @ tuck r@ move r> + data ! ;
+
+: bd>len	; immediate
+: bd>code	cell+ ;
+: bd>name	cell+ cell+ ;
+: bdes		h# 2 cells h# 10 chars + * ;
+: bde@		bdes bd-base + ;
+
+: hash		_1! _2! _2@ _1@ _2@ _1@ h# 1 >> + c@ h# 1 << _1@ _2@ c@ h# 1F and xor xor hash-mask and ;
+: ht		cells hashhead + ;
+
+: false		h# 0 ;
+: true		h# FFFFFFFFFFFFFFFF ;
+: not		true xor ;
+
+: skip		cells r> + >r ;
+
+: parse
+	0
+	begin
+		drop in dup h# 21 < not
+	until unloop
+	0
+	begin
+		tuck nbuf + c! h# 1 +
+		in tuck h# 21 <
+	until unloop
+	nbuflen ! drop
+;
+
+: dmatch?
+	nbuflen @ over >len c@ over =
+	h# 3 and skip
+		2drop false ;
+	>r >name nbuf r> comp 0 =
+;
+
+: $find
+	nbuf nbuflen @ hash
+	nip nip ht @
+	begin
+		dup h# 0 = h# 8 and skip
+		dup dmatch?
+		h# 6 and skip dprev
+	again
+	unloop drop false
+;
+	unloop true
+;
+
+: (')		parse $find dup not h# 4 and skip >r >interp @ r> ;
+: '			(') not h# 1 and skip _n ; immediate
+
+: (literal)	data @ ((literal)) data ! ;
+: compile,	data @ (compile) data ! ;
+: prologue,	data @ (prologue) data ! ;
+: epilogue,	data @ (epilogue) data ! ;
+: return,	data @ (return) data ! ;
+: branch-to,	data @ (branch) tuck data ! (>resolve) ;
+: constant,	data @ ((literal)) (return) data ! ;
+
+: ('/)		h# 9 bde@ bd>code @ _n ; immediate
+: '/		('/) ;
+
+: compiling,
+	begin
+		(') not h# D and skip
+		dup '/ = h# 2 and skip
+		compile,
+	again
+		drop (h#) (literal)
+	again
+	unloop epilogue,
+;
+
+: tstd		h# 0 ;
+: timmed	h# 1 ;
+: tcreate	h# 2 ;
+: tcode		h# 4 ;
+: tconst	h# 8 ;
+: tdefer	h# A ;
+
+: new-def
+	data @ swap
+	nbuflen @ d>len,
+	d>type,
+	list @ , dup list !
+	dup nbuf nbuflen @ hash nip nip ht dup @ , !
+	nbuflen @ aligned tuck
+	+ h# 6 cells + ,
+	0 ,
+	0 ,
+	nbuf swap d>name,
+;
+
+: prim
+	data @ >r
+	dup bd>len c@ d>len,
+	tcode d>type,
+	list @ , r@ list !
+	dup bd>name over bd>len c@ hash nip nip ht dup @ , r> swap !
+	dup bd>code @ ,
+	0 ,
+	0 ,
+	dup bd>name swap bd>len c@ aligned d>name,
+;
+
+: :-exec'able	list @ data @ over - (:-exec'able) ;
+
+: ::		parse tstd new-def prologue, compiling, :-exec'able ; immediate
+: (variable)	parse tcreate new-def data @ body-offset + dup (literal) return, data ! :-exec'able 0 , ;
+: (constant)	parse tconst new-def constant, :-exec'able ;
+: constant	(constant) ; immediate
+: (defer)	parse tdefer new-def branch-to, :-exec'able ;
+
+: prims
+	'<first-prim> dup bde@
+	begin
+		prim
+		h# 1 + dup bde@
+		dup bd>name c@
+		h# 7E =
+	until unloop
+	2drop
+; immediate
+
+prims
+
+:: |`|		;
+:: noop		;
+
+: size-consts	/c /n ; immediate size-consts
+constant /n
+constant /c
+
+:: cells	/ 2 << ;
+:: cell+	/ 4 + ;
+:: cell-	/ 4 - ;
+:: /cells	/ 2 >>a ;
+
+:: chars	;
+:: char+	/ 1 + ;
+:: char-	/ 1 - ;
+
+:: drop		_1! ;
+:: 2drop	_1! _1! ;
+:: 3drop	_1! _1! _1! ;
+:: nip		_1! _2! _1@ ;
+:: dup		_1! _1@ _1@ ;
+:: swap		_1! _2! _1@ _2@ ;
+:: over		_1! _2! _2@ _1@ _2@ ;
+:: tuck		_1! _2! _1@ _2@ _1@ ;
+:: 2dup		_1! _2! _2@ _1@ _2@ _1@ ;
+:: swapdup	_1! _2! _2@ _1@ _1@ _2@ ;
+:: udup		_1! _2! _2@ _2@ _1@ ;
+:: chip		>r _1! _2! _1@ r> ;
+:: chunk	>r _1! _2! r> ;
+:: rot		_1! _2! >r _2@ _1@ r> ;
+:: -rot		>r _1! _2! r> _2@ _1@ ;
+:: pick		>r dsp@ r> / 1 - cells + @ ;
+:: 3dup		_1! _2! >r rsp@ @ _2@ _1@ r> _2@ _1@ ;
+
+: rs-dir-const	h# 0 >r rsp@ r> _1! rsp@ u< ; immediate rs-dir-const
+
+constant rsp-down?
+
+: bool-consts	h# FFFFFFFFFFFFFFFF h# 0 ; immediate bool-consts
+
+constant false
+constant true
+
+:: not		/ FFFFFFFFFFFFFFFF xor ;
+:: negate	>r / 0 r> - ;
+:: ?negate	_1! _1@ xor _1@ - ;
+:: 0=		/ 0 = ;
+:: iff		>r tuck xor r> and xor ;
+
+:: data-base	/ 0 initvec@ ;
+:: bd-base	/ 1 initvec@ ;
+:: stack-base	/ 2 initvec@ ;
+:: rstack-base	/ 3 initvec@ ;
+:: ftext-base	/ 4 initvec@ ;
+:: am-base	/ 5 initvec@ ;
+:: real_base	/ 6 initvec@ ;
+:: real_size	/ 7 initvec@ ;
+:: virt_base	/ 8 initvec@ ;
+:: virt_size	/ 9 initvec@ ;
+:: mem-existing	/ A initvec@ ;
+:: mem-#existing / B initvec@ ;
+:: nvram	/ C initvec@ ;
+:: nvram-size	/ D initvec@ ;
+:: devtree	/ E initvec@ ;
+:: devtree-size	/ F initvec@ ;
+:: internals	/ 11 initvec@ ;
+:: pagetab	/ 12 initvec@ ;
+:: pagetab-size	/ 13 initvec@ ;
+
+: var-init-1
+	data (constant)
+	hashhead (constant)
+	list dup (constant)
+	cell+ (constant)
+; immediate var-init-1 _data _hash list last
+
+:: here		_data @ ;
+:: dp@		_data @ ;
+:: dp!		_data ! ;
+
+: hash-consts	hash-mask #hash ; immediate hash-consts
+constant #hash
+constant hash-mask
+
+:: +hash	_1! _2! _2@ _1@ _2@ _1@ / 1 >> + c@ / 1 << _1@ _2@ c@ / 1F and xor xor hash-mask and ;	
+:: head		cells _hash + ;
+
+: align-consts	/n h# 1 - h# 0 /n -
+				/code h# 1 - h# 0 /code - ; immediate align-consts
+constant calign-mask
+constant calign+
+constant align-mask
+constant align+
+
+:: aligned	align+ + align-mask and ;
+:: align	dp@ aligned dp! ;
+:: caligned	calign+ + calign-mask and ;
+:: calign	dp@ caligned dp! ;
+:: allot	dp@ + dp! ;
+:: ,		dp@ aligned tuck ! cell+ dp! ;
+:: c,		dp@ tuck c! char+ dp! ;
+
+:: +!		_1! _1@ @ + _1@ ! ;
+
+:: (literal)	dp@ ((literal)) dp! ;
+:: compile,	dp@ (compile) dp! ;
+:: prologue,	dp@ (prologue) dp! ;
+:: epilogue,	dp@ (epilogue) dp! ;
+:: branch,	dp@ (branch) dp! ;
+:: f-branch,	dp@ (f-branch) dp! ;
+:: t-branch,	dp@ (t-branch) dp! ;
+:: return,	dp@ (return) dp! ;
+
+:: branch-to,	dp@ (branch) tuck dp! (>resolve) ;
+
+: type-consts	h# 80 h# 40 h# 20 h# 10 h# E h# C h# A h# 8 h# 6 h# 4 h# 2 h# 1 h# 0 ; immediate type-consts
+constant tstd
+constant timmed
+constant tcreate
+constant tcode
+constant tvalue
+constant tconst
+constant tdefer
+constant tfield
+constant t2value
+constant tinv
+constant tinst
+constant tlocal
+constant treg
+
+:: d>len	;
+:: d>type	char+ ;
+:: d>link	cell+ ;
+:: d>next	/ 2 cells + ;
+:: d>interp	/ 3 cells + ;
+:: d>comp	/ 4 cells + ;
+:: d>pack	/ 5 cells + ;
+:: d>name	/ 6 cells + ;
+:: /de		/ 6 cells ;
+
+
+: var-init-2
+	ftext-base
+	begin
+		char+ dup c@ h# 26 =
+	until unloop
+	char+		(constant)
+			(variable)
+	' compile, 	(constant)
+	' execute 	(constant)
+; immediate var-init-2 <source> <>in> 'compile, 'execute
+
+
+:: exec'able-at	/ 1 exec'able ;
+
+:: (new-def)
+	align over dup
+	aligned here + /de + >r here >r
+	c,
+	tinv or c,
+	list @ , r@ list ! r@ last !
+	+hash head r> swap >r r@ @ , r> !
+	r@ ,
+	/ 0 ,
+	/ 0 ,
+	here swap move
+	r@ exec'able-at
+	r> dp!
+;
+
+:: (recursive)	last @ d>type dup c@ tinv not and swap c! ;
+:: epilogue	(recursive) epilogue, ;
+:: return	(recursive) return, ;
+
+:: :-exec'able  last @ here over - (:-exec'able) ;
+:: (:-end)	epilogue, :-exec'able ;
+
+:: rbegin	r> dup >r >r ;
+:: runtil	_2! r> r> _2@ >r tuck r> iff swap >r >r ;
+:: ragain	r> drop r> dup >r >r ;
+:: runbegin	r> r> drop >r ;
+
+:: <parse-word>
+	<source> <>in> @ + char-
+	rbegin
+		char+ dup c@ / 21 < not
+	runtil runbegin
+	dup >r
+	rbegin
+		char+ dup c@ / 21 <
+	runtil runbegin
+	dup <source> - <>in> !
+	r> tuck -
+;
+
+:: de=		dup >r d>len c@ dup >r = swap r> r> d>name swap comp 0= and ;
+
+:: <(find)>
+	+hash head @ dup
+	rbegin
+		nip 3dup de= >r dup d>next @ r>
+	runtil runbegin
+	drop chunk
+;
+
+:: <(find)=>	<(find)> true ;
+
+:: <compiling>
+	rbegin
+		<parse-word> <(find)>
+		dup d>interp @ swap d>comp @ dup 0= dup >r iff
+		'compile, 'execute r> iff execute
+	ragain
+;
+
+: var-init-3
+	(variable)
+	' <parse-word> (defer)
+	' <(find)=> (defer)
+	' (new-def) (defer)
+	' noop (defer)
+	' (:-end) (defer)
+; immediate var-init-3 state parse-word (find) new-def :-prep :-end
+
+: >immediate	list @ dup >type dup c@ timmed or swap c! dup >interp @ swap >comp ! ; immediate
+:: immediate	last @ dup d>type dup c@ timmed or swap c! dup d>interp @ swap d>comp ! ; >immediate
+
+:: :		<parse-word> / 0 new-def prologue, ; >immediate
+
+:: 0		/ 0 (literal) ; >immediate
+:: 1		/ 1 (literal) ; >immediate
+:: 2		/ 2 (literal) ; >immediate
+
+:: lcc		dup / 41 - / 1A u< / 20 and xor ;
+:: upc		dup / 61 - / 1A u< / 20 and xor ;
+
+: char-consts	h# 9B h# 26 h# 20 h# D h# A h# 8 h# 7 ; immediate char-consts
+
+constant bell
+constant bs
+constant linefeed
+constant carret
+constant bl
+constant amp
+constant csi
+
+: misc-consts	h# FFFFFFFFFFFFFFF3 h# 20 ; immediate misc-consts
+
+constant bits/cell
+
+constant exc.notfound
+
+
+:: recursive	(recursive) ; >immediate
+
+:: ;		(recursive) (:-end) <stop> >immediate
+
+: trampoline	drop drop drop ' <compiling> execute ; immediate
+
+trampoline	boing!
+
+---------------------------&
+
+: {here}	here ;									immediate
+
+: dump		<dump> ;								immediate
+: debug		<debug> ;								immediate
+
+: 0<=		>r 0 r> < not ;
+: 0<		0 < ;
+: 0<>		0 = not ;
+: 0>		>r 0 r> < ;
+: 0>=		0 < not ;
+
+: <=		swap < not ;
+: <>		= not ;
+: >			swap < ;
+: >=		< not ;
+
+: u<=		swap u< not ;
+: u>		swap u< ;
+: u>=		u< not ;
+
+: 1+		1 + ;
+: 1-		1 - ;
+
+: roll		dsp@ _1! cells _2! _2@ _1@ + @ _1@ _1@ cell+ _2@ move _1! _2! _1@ ;
+: 2nip		>r >r _1! _2! r> r> ;
+: 2swap		>r >r _1! _2! r> r> _2@ _1@ ;
+: 2over		>r >r _1! _2! _2@ _1@ r> r> _2@ _1@ ;
+: 2tuck		_1! _2! >r >r _2@ _1@ r> r> _2@ _1@ ;
+: 2rot		>r >r >r >r _1! _2! r> r> r> r> _2@ _1@ ;
+: 2-rot		_1! _2! >r >r >r >r _2@ _1@ r> r> r> r> ;
+: 4dup		>r >r _1! _2! _2@ _1@ r@ 1 rpick _2@ _1@ r> r> ; 
+
+: rdrop		r> r> drop >r ;
+: 2>r		r> _2! _1! >r _1@ >r _2@ >r ;
+: 2r>		r> _2! r> _1! r> _1@ _2@ >r ;
+: 2r@		r> _2! 1 rpick r@ _2@ >r ;
+: tuck>r	r> _2! _1! _1@ r> _1@ >r >r _2@ >r ;
+
+: 2@		dup cell+ @ swap @ ;
+: 2!		tuck ! cell+ ! ;
+
+: ([)		false state ! ;
+: [			([) ;									immediate
+: ]			true state ! ;
+
+: :noname	:-prep calign here prologue, ] ;
+
+: [']		<parse-word> <(find)> d>interp @ (literal) ;				immediate
+
+: /defer	/branch ;
+: (defer)	parse-word tdefer new-def branch-to, (recursive) :-exec'able ;
+: defer		['] noop (defer) ;
+
+: set-type	last @ d>type c! ;
+: >body		body-offset + ;
+: body>		body-offset - ;
+
+: $create	tcreate new-def dp@ body-offset + dup (literal) return dp! :-exec'able ;
+: create	parse-word $create ;
+: (does>)	r> rs>compile decompile> last @ d>interp @ decompile> dp@ >r dp! branch-to, r> dp! ;
+: does>		['] (does>) compile, :-exec'able (recursive) :noname drop ;		immediate
+
+: variable	create 0 , ;
+: value		create , tvalue set-type does> @ ;
+: 2variable	create 0 0 , , ;
+: 2value	create , , t2value set-type does> dup cell+ @ swap @ ;
+: buffer:	create allot ;
+
+: struct	0 ;
+: field		create over , + tfield set-type does> @ + ;
+: (field)	create , tfield set-type does> @ + ;
+
+: begin		branch, here dup dup (>resolve) ;					immediate
+: again		branch, here swap (>resolve) ;						immediate
+: until		f-branch, here swap (>resolve) ;					immediate
+: while		f-branch, here swap ;							immediate
+: repeat	branch, here swap (>resolve) here (>resolve) ;				immediate
+: repeat-until	f-branch, here swap (>resolve) here (>resolve) ;			immediate
+: ?repeat	f-branch, here over (>resolve) ;					immediate
+: if		f-branch, here ;							immediate
+: then		here (>resolve) ;							immediate
+: else		branch, here tuck (>resolve) ;						immediate
+: ahead		branch, here ;								immediate
+
+: <throw>	rdrop recursive <throw> ;
+: throw-creates
+	['] <throw> (defer) 2variable
+;											immediate
+throw-creates throw throw-$
+
+: (find-throw)	2dup (find) if chunk else 2dup throw-$ 2! exc.notfound throw then ;
+: (find-parse)	parse-word (find-throw) ;
+: (')		(find-parse) d>interp @ ;
+: [']		(') (literal) ;									immediate
+: [compile]	(') compile, ;									immediate
+: literal	(literal) ;										immediate
+: 2literal	swap (literal) (literal) ;						immediate
+
+: parse-creates
+	0 0 2value variable variable
+;															immediate
+parse-creates source >in base
+
+: ?dup		dup 0<> if dup then ;
+: ?drop		dup if drop then ;
+: ?dup-0=	dup 0<> if dup false else true then ;
+: ?drop-0=	dup 0= dup if nip then ;
+: ?drop-0<>	dup if true then ;
+
+: constant	parse-word tconst new-def (literal) return :-exec'able ;
+: 2constant	parse-word tconst new-def swap (literal) (literal) return :-exec'able ;
+
+: exit		r> _1! ;
+: exit>		(recursive) :-end ;								immediate
+: (:)		0 new-def prologue, ] ;
+: :			:-prep parse-word 0 new-def prologue, ] ;		immediate
+: ;			:-end (recursive) ([) exit>						immediate
+: ;-flush	['] ; exec'able-at exit>						immediate ;-flush
+: is-comp	last @ d>comp ! ;
+: ;>compile	:-end here is-comp prologue, ;			 		immediate
+
+: compile	(') compile, ;>compile (') (literal) ['] compile, compile, ;
+: postpone
+	(find-parse) dup d>comp @ ?drop-0=
+	if
+		d>interp @ (literal) compile compile,
+	else
+		compile, drop
+	then
+; immediate
+
+: (value-to)	>body ! ;
+: to		(') (value-to) ;>compile (') (literal) compile (value-to) ;
+: (2value-to)	>body tuck ! cell+ ! ;
+: 2to		(') (2value-to) ;>compile (') (literal) compile (2value-to) ;
+: (is)		dp@ >r dp! branch-to, r> dp! ;
+: is		(') (is) ;>compile (') (literal) compile (is) ;
+
+: do-creates
+	variable
+;											immediate
+do-creates #do
+
+: #do+		#do @ 2 + #do ! ;
+: #do-		#do @ 2 - #do ! ;
+: (?do)		1 rpick 2 rpick u< ;
+: (loop)	r> r> 1 + >r >r ;
+: (+loop)	r> _1! r> + >r _1@ >r ;
+: bounds	_1! _2! _2@ _1@ + _2@ ;
+: unloop	r> r> _1! r> _1! >r ;
+: fixup-leaves	begin ?dup while here (>resolve) repeat ;
+: loop-common	branch, here rot (>resolve) here (>resolve) fixup-leaves compile unloop ;
+: (leave)	0 _2! begin >r _2@ 1+ _2! _1! _1@ _1@ 0= until here begin r> _2@ 1- _2! _2@ 0= until ;
+
+
+: ?do		0 compile 2>r here compile (?do) f-branch, here #do+ ;				immediate
+: do		0 compile 2>r branch, here compile (?do) f-branch, here 2dup (>resolve) #do+ ;	immediate
+: loop		compile (loop) loop-common #do- ;						immediate
+: +loop		compile (+loop) loop-common #do- ;						immediate
+: leave		branch, (leave) ;								immediate
+: ?leave	t-branch, (leave) ;								immediate
+
+: i			1 rpick ;
+
+: (case)	;
+: case		0 compile (case) ;							immediate
+: (of)		over = ;
+: of		compile (of) f-branch, here compile drop ;				immediate
+: endof		branch, here tuck (>resolve) ;						immediate
+: (endcase)	drop ;
+: endcase	compile (endcase) begin ?dup while here (>resolve) repeat ;		immediate
+
+: [char]	parse-word 0<> if c@ (literal) else drop then ;				immediate
+
+: [0-9]		[char] 9 [char] 0 - 1+ (literal) ;					immediate
+: a-[0-9]	[char] A [0-9] - (literal) ;						immediate
+: (digit)
+	_2! _2@ [char] 0 - _1! _1@
+	[0-9] u< if
+		_1@
+	else
+		_2@ upc a-[0-9] -
+	then
+	dup base @ u< if true exit then
+	drop false
+;
+
+: [not2]	2 not (literal) ;							immediate
+
+: (>snumber)
+	dup 0= if exit then
+	_1! _2! 0 _2@ _1@ _1@ _2@ + >r
+	bounds ?do
+		i c@
+		dup [not2] and [char] , =
+		if
+			drop
+		else
+			(digit) not if i unloop _1! _1@ r> _1@ - exit then
+			>r base @ * r> +
+		then
+	loop
+	r> 0
+;
+
+: $number
+	dup 0= if 2drop true exit then
+	over c@ [char] - = >r r@ if
+		1- >r 1+ r>
+	then
+	(>snumber) if
+		2drop rdrop true
+	else
+		drop r> ?negate false
+	then
+;
+
+: [bits/cell1-]	bits/cell 1- (literal) ;						immediate
+: dnegate	not >r negate _1! _1@ r> _1@ 0= - ;
+: um+		_1! >r _2! _1@ _2@ + _1@ 1 >> _2@ 1 >> + _1@ 1 and _2@ and + [bits/cell1-] >> r> + ;
+: d+		>r um+ r> + ;
+: d-		dnegate d+ ;
+: dum*		tuck * >r um* 0 r> d+ ;
+
+: (>number)
+	dup 0= if exit then
+	0 0 2swap
+	2dup + >r bounds ?do
+		i c@
+		dup [not2] and [char] , =
+		if
+			drop
+		else
+			(digit) not if i unloop _1! _1@ r> _1@ - exit then
+			>r base @ dum* r> um+
+		then
+	loop
+	r> 0
+;
+
+: $dnumber
+	dup 0= if 2drop true exit then
+	over c@ [char] - = >r r@ if
+		1- >r 1+ r>
+	then
+	(>number) if
+		3drop rdrop true
+	else
+		drop r> if dnegate then false
+	then
+;
+
+
+: $=
+	_1! _2! _1@ <> if drop false exit then
+	>r r@ r> _2@ _1@ comp 0= if drop true exit then
+	_2@ - _2@ _1@ + _2@ ?do
+		dup i + c@ lcc
+		i c@ lcc
+		<> if unloop drop false exit then
+	loop
+	drop true
+;
+
+: (((find)))
+	dup if
+		dup d>type c@ tinv and if
+			d>next @ dup 0= if 3drop false exit then
+		then
+		begin
+			3dup _1! _1@ d>name _1@ d>len c@ $=
+			if
+				chunk true exit
+			then
+			d>next @ dup 0=
+		until
+	then
+	3drop false
+;
+
+: ((find))	+hash head @ (((find))) ;
+
+: [bl1+]	bl 1+ (literal) ;							immediate
+: (parse-word)
+	source >r >in @
+	begin
+		dup r@ >= if
+			rdrop drop 0 exit
+		then
+		2dup + c@ [bl1+] <
+	while
+		char+
+	repeat
+	tuck>r
+	begin
+		char+ dup r@ <
+	while
+		2dup + c@ [bl1+] <
+	repeat-until
+	dup char+ >in !
+	rdrop r@ - swap r> + swap
+;
+
+: [.]		[char] . (literal) ;							immediate
+: interpreting/compiling
+	begin
+		parse-word dup 0<>
+	while
+		2dup (find) if
+			chunk state @ if
+				dup d>comp @ ?drop-0= if
+					d>interp @ compile,
+				else
+					nip execute
+				then
+			else
+				d>interp @ execute	
+			then
+		else
+			2dup 2dup + 1- c@ [.] = if
+				$dnumber if
+					2dup throw-$ 2! exc.notfound throw
+				else
+					2nip state @ if swap (literal) (literal) then
+				then
+			else
+				$number if
+					2dup throw-$ 2! exc.notfound throw
+				else
+					chunk state @ if (literal) then
+				then
+			then
+		then
+	repeat
+	2drop
+;
+
+: trampoline	
+	['] (parse-word) is parse-word
+	['] ((find)) is (find)
+	1 2 << 2 << to base
+	false to state
+	<source> 1 1 1 2 << << << 2 << 2 << 2to source
+	<>in> @ >in !
+	interpreting/compiling
+; immediate trampoline
+
+: x-out		0 (find-parse) d>len c! ;
+
+x-out 0
+x-out 1
+x-out 2
+
+: nonimmediate	0 (find-parse) dup d>type dup c@ timmed not and swap c! d>comp ! ;
+
+nonimmediate	:
+nonimmediate	immediate

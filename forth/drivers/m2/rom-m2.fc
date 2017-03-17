@@ -1,0 +1,9 @@
+fcode-version2
+hex
+
+" rom" device-name
+" rom" device-type
+
+40000000 encode-int 0040.0000 encode-int encode+ " reg" property
+
+fcode-end

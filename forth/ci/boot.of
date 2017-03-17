@@ -1,0 +1,90 @@
+0 0 2value load-spec
+false value override-load-spec?
+
+defer map-load-area
+defer release-load-area
+
+: default-device		( -- addr len )
+	diagnostic-mode? if " diag-device" else " boot-device" then
+	get-option
+	
+	begin			( paddr plen )
+		decode-string 2 pick
+	while
+		2dup open-dev dup if
+			close-dev 2nip exit
+		else
+			3drop
+		then
+	repeat
+	2nip
+;
+
+: default-args			( -- addr len )
+	diagnostic-mode? if diag-file else boot-file then
+;
+
+
+\ load and boot need testing
+defer (load)			( load-base load-len -- )
+
+0 0 2value load-dev
+0 0 2value load-args
+
+: $load					( bootspec-str bootspec-len -- )
+	override-load-spec? if 2drop else to load-spec then
+
+	push-source load-spec to source >in off
+	parse-word to load-dev
+	parse-line to load-args
+	pop-source
+
+	load-dev dup if
+		over c@ ascii / = if
+			load-args
+		else
+			2dup [char] : left-parse-string 2nip
+			lookup-alias chunk if
+				load-args
+			else
+				2drop default-device load-spec
+			then
+		then
+		dup 0= if 2drop default-args then
+	else
+		2drop 2drop default-device default-args
+	then				( dev-str dev-len args-str args-len )
+
+	encode-string " bootargs" /chosen (property)
+	
+	open-device >r
+	r@ get-instance-path encode-string " bootpath" /chosen (property)
+	
+	map-load-area
+	load-base dup " load" r@ $call-method
+	r> close-dev
+						( load-base load-len )	
+	(load)
+	init-program
+;
+
+: load		parse-line $load ;
+
+
+defer (boot)		( -- )
+
+
+: boot		(boot) load go ;
+: $boot		(boot) $load go ;		( bootspec-addr bootspec-len -- )
+
+: set-boot		( "{param-text}<eol>" -- )
+	parse-line to load-spec
+	true to override-load-spec?
+	' nv-delete-line1 catch drop
+;
+
+: set-next-boot		( bootspec-addr bootspec-len -- )
+	-leading -trailing
+	" "(0D)" nv+ nv+ " set-boot " nv+
+	" true" " use-nvramrc?" $setenv
+;

@@ -1,0 +1,191 @@
+400 constant where-search
+
+: (where-compiled)	( addr -- d offset -1/1 | addr 0 )
+	xt>d dup if
+		0 swap exit
+	else
+		drop
+	then
+	dup
+	where-search 0 ?do
+		dup decompile dup dec.pro = if		( addr addr' decompilation... )
+			2drop
+			xt>d dup if			( addr d 1/-1/-2 )
+				>r tuck r@ 1 = if d>interp else d>comp then
+				@ - r>
+			else				( addr addr' 0 )
+				nip
+			then
+			unloop exit
+		then
+		
+		(ignore-decompile) drop
+		/code -
+	loop
+	drop 0
+;
+
+: (where-prim)		( addr -- d offset -1/1 | addr 0 )
+	>r -1 8000
+	[ s" |`|" (find-throw) ] literal begin
+		d>link @ dup
+	while
+		2dup d>interp @ r@		( best-d best-off d best-off this-xt in-xt )
+		swap - 2dup u> if		( best-d best-off d best-off this-off )
+			>r drop chunk r> over		( d this-off d )
+		else
+			2drop
+		then
+	repeat
+	drop
+	over -1 <> if
+		rdrop 1
+	else
+		2drop r> 0
+	then
+;
+
+: (where)			( addr -- d offset -2   [immediate]
+							| d offset -1   [compile]
+                            | addr 0
+							| d offset 1    [interp] )
+	/code negate and
+	dup in-of-mem? not if
+		0 exit
+	then
+
+	(where-compiled) dup 0= if
+		drop (where-prim)
+	then
+;
+
+: (bt-who)			( [offset] d -2/-1/1 print-offset? | addr 0 print-offset? -- )
+	>r
+	case
+		-2 of (who) ." <immediate>" true endof
+		-1 of (who) ." <compile>" true endof
+		0 of [char] ^ emit .cell false endof
+		1 of (who) true endof
+	endcase
+	r> and if
+		[char] + emit s.
+	then
+;
+
+: where				( addr -- )
+	(where) dup if >r swap r> then
+	true (bt-who)
+;
+
+: rs->comp			( return-stack-elem -- addr )
+	/compile -
+;
+
+: (after-compile?)		( addr -- false | xt true )
+	dup in-of-mem? if
+		rs->comp decompile dup dec.call = if
+			drop nip true exit
+		else
+			(ignore-decompile)
+		then
+	then
+	drop false
+;
+
+: after-compile?		( addr -- bool )
+	(after-compile?) dup if nip then
+;
+
+
+1000 constant comp-maxoff
+40 constant execute-maxoff
+
+: (bt-max-off)		( d -- max-offset )
+	dup d>type c@ E and case
+		tstd of comp-maxoff endof
+		tcreate of body-offset endof
+		tcode of dup d>interp @ ['] execute = if execute-maxoff else comp-maxoff then endof
+		tvalue of body-offset endof
+		tconst of /literal 2* /epilogue + endof
+		tdefer of /defer endof
+		tfield of body-offset endof
+		t2value of body-offset endof
+	endcase
+	nip
+;
+
+: (bt-next-elem)		( rs-top rs-ptr -- rs-top rs-ptr' not-done? )
+	[ rsp-down? ]
+	[if] cell- 2dup u<=
+	[else] cell+ 2dup u>
+	[then]
+;
+
+: (bt-find-forward)		( rs-top rs-ptr called-xt maxoff -- rs-top rs-ptr' successful? )
+	>r >r tuck
+	begin					( rs-ptr-orig rs-base rs-ptr' )
+		r> over @ over - r@ u<= if
+			over @ after-compile? if
+				rdrop drop chip true exit
+			then
+		then
+		>r (bt-next-elem) not
+	until
+	rdrop rdrop
+	drop swap false
+;
+
+: (bt-skip-forward)		( rs-top rs-ptr -- rs-top rs-ptr' successful? )
+	begin
+		dup @ after-compile? if
+			true exit
+		then
+		(bt-next-elem) not
+	until
+	false
+;
+
+: (bt-cr)			cr 3 spaces ;
+
+: (backtrace)		( rsp-base rsp-top -- )
+	."  in:" see-crflag off
+	swap
+	[ rsp-down? ] [if] cell- 2dup u<= [else] 2dup u> [then]
+	>r (bt-cr) dup @ where r>
+	if							( assumes rsp points to topmost element on rstack )
+		begin
+			(bt-cr)
+			dup @ (after-compile?) if
+				dup xt>d 2dup false (bt-who)
+				if
+					(bt-max-off)
+				else
+					drop comp-maxoff
+				then
+			else
+				-1 comp-maxoff
+			then							( rsp-top rsp-ptr called-xt max-off )
+
+			>r >r (bt-next-elem)
+		while
+			dup @ r@ -1 = if
+				where rdrop rdrop
+			else
+				drop r> r> over >r (bt-find-forward) if
+					dup @ [char] + emit r> - s.
+				else
+					rdrop (bt-skip-forward) if
+						dup @ (bt-cr) where
+					else
+						2drop cr exit
+					then
+				then
+			then
+		repeat
+		rdrop rdrop
+	then
+	2drop cr
+;
+
+
+' (backtrace) to backtrace
