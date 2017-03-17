@@ -1,0 +1,9 @@
+Directory contents:
+      ci/  Open Firmware Client Interface
+ drivers/  Device drivers
+   forth/  Forth bootstrap, interpreter/compiler, language basics
+      of/  Open Firmware backbone
+packages/  Packages for use by device drivers
+platform/  Platform-specific code
+     ppc/  PowerPC-specific code
+ 
