@@ -1,0 +1,119 @@
+unselect-dev
+
+:ev-int nvram-block#
+:ev-str nvram-device
+
+200 buffer: (oem-logo)
+
+
+: bit>bool-prop			( flag -- paddr plen )
+	if (true-prop) else (false-prop) then
+;
+
+: load-int-option		( ptr addr len -- )
+	rot l@-be encode-int 2swap property
+;
+
+: load-str-option		( ptr size addr len -- )
+	2swap c>f$-max encode-string 2swap property
+;
+
+: load-options			( nvram-block -- )
+	>r r@ 6 + w@-be
+	dup 1 and bit>bool-prop " real-mode?" property
+	dup 2 and bit>bool-prop " little-endian?" property
+	dup 4 and bit>bool-prop " auto-boot?" property
+	dup 8 and bit>bool-prop " fcode-debug?" property
+	dup 10 and bit>bool-prop " diag-switch?" property
+	dup 20 and bit>bool-prop " use-nvramrc?" property
+	40 and bit>bool-prop " vm-mod-ath?" property
+	
+	r@ 8 + " real-base" load-int-option
+	r@ C + " real-size" load-int-option
+	r@ 10 + " virt-base" load-int-option
+	r@ 14 + " virt-size" load-int-option
+	
+	r@ 18 + " load-base" load-int-option
+	r@ 1C + " screen-#rows" load-int-option
+	r@ 20 + " screen-#columns" load-int-option
+	r@ 24 + " nvram-block#" load-int-option
+	
+	r@ 28 + 10 " nvram-device" load-str-option
+	r@ 38 + 40 " boot-device" load-str-option
+	r@ 78 + 20 " boot-file" load-str-option
+	r@ 98 + 40 " diag-device" load-str-option
+	r@ D8 + 20 " diag-file" load-str-option
+	r@ F8 + 20 " input-device" load-str-option
+	r@ 118 + 20 " output-device" load-str-option
+	r@ 138 + 40 " boot-command" load-str-option
+	r> 178 + 88 " nvramrc" load-str-option
+	
+	0 encode-int " selftest-#megs" property
+	" none" encode-string " security-mode" property
+	0 encode-int " security-#badlogins" property
+	" " encode-string " security-password" property
+	" " encode-string " oem-banner" property
+	(oem-logo) 200 " oem-logo" property
+	(false-prop) " oem-banner?" property
+	(false-prop) " oem-logo?" property
+;
+
+dev /options
+nvram load-options
+unselect-dev
+
+0 value nvram-block
+
+: store-int-option	( val offset -- )
+	nvram-block swap + l!-be
+;
+
+: store-str-option	( addr len offset maxlen -- )
+	>r nvram-block + r> f>c$-max drop
+;
+
+: ev-sync			( -- )
+	200 alloc-mem to nvram-block
+	
+	80 nvram-block 4 + w!-be
+	
+	real-mode? 1 and
+	little-endian? 2 and or
+	auto-boot? 4 and or
+	fcode-debug? 8 and or
+	diag-switch? 10 and or
+	use-nvramrc? 20 and or
+	oem-banner? 40 and or
+	oem-logo? 80 and or nvram-block 6 + w!-be
+
+	real-base 8 store-int-option
+	real-size C store-int-option
+	virt-base 10 store-int-option
+	virt-base 14 store-int-option
+	load-base 18 store-int-option
+	screen-#rows 1C store-int-option
+	screen-#columns 20 store-int-option
+
+	boot-device 24 40 store-str-option
+	boot-file 64 20 store-str-option
+	diag-device 84 40 store-str-option
+	diag-file C4 20 store-str-option
+	input-device E4 20 store-str-option
+	output-device 104 20 store-str-option
+	boot-command 124 40 store-str-option
+	nvramrc 164 9C store-str-option
+	
+	0
+	nvram-block la1+ 1FC bounds ?do
+		17 >>r
+		i l@ xor
+	/l +loop
+	
+	nvram-block l!-be
+;
+
+
+:noname
+	abort" no space for user environment variables"
+;
+to (nodefault-bytes)

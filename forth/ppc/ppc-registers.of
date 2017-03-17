@@ -1,0 +1,7 @@
+5 constant rtcl
+16 constant dec
+110 constant sprg0
+111 constant sprg1
+112 constant sprg2
+113 constant sprg3
+3F9 constant l2cr

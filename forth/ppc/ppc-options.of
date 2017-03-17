@@ -1,0 +1,11 @@
+:ev-bool	real-mode?
+:ev-bool	little-endian?
+
+:ev-int		real-base
+:ev-int		real-size
+:ev-int		virt-base
+:ev-int		virt-size
+:ev-int		load-base
+
+\ PPCScumware-specific
+:ev-bool	vm-mod-ath?

@@ -1,0 +1,103 @@
+
+\ Align the given memory region to page-size.
+: align-mem-region		( addr len -- addr' len' )
+	over + >r
+	page-mask and
+	r> page-size 1- + page-mask and over -
+;
+
+\ Make align a power of two and at least page-size.
+: adjust-align			( align -- align' )
+	page-size max 1- 1
+	begin
+		over
+	while
+		1 << >r 1 >> r>
+	repeat
+	nip
+;
+
+
+: release-this			( addr size ihandle -- )
+	"release" rot ['] $call-method catch if
+		3drop 2drop
+	then
+;
+
+: try-map				( phys virt size -- )
+	3dup -1 "map" mmu-ih ['] $call-method catch dup if
+		>r 3drop 3drop drop tuck mmu-ih release-this
+		memory-ih release-this r> throw
+	then
+	3drop drop
+;
+
+: claim-common			( virt size phys -- )
+	-rot
+	2dup 0 "claim" mmu-ih ['] $call-method catch dup if
+		>r 3drop 3drop nip memory-ih release-this r> throw
+	then
+	2drop
+	try-map
+;
+
+: claim-real-common		( phys-aligned size -- )
+	2dup 0 "claim" memory-ih ['] $call-method catch dup if
+		>r 3drop 3drop mmu-ih release-this r> throw
+	then 2drop				( phys-a size )
+	>r dup r> try-map
+;
+\ Claim the real and virtual memory regions of RAM indicated by
+\  (phys, size) and map them together.
+: claim-real			( phys size -- phys Ã )
+	over >r align-mem-region
+	2dup 0 "claim" mmu-ih $call-method drop		( phys size )
+	claim-real-common
+	r>
+;
+
+: claim-real-aligned	( size align -- phys )
+	over >r "claim" mmu-ih $call-method			( phys  R: size )
+	dup r> claim-real-common
+;
+
+: claim-virt			( virt size -- virt )
+	over >r align-mem-region
+	2dup 0 "claim" memory-ih ['] $call-method catch if
+		3drop 3drop dup 1 "claim" memory-ih $call-method
+	then		( virt size phys )
+	claim-common r>
+;
+
+: claim-virt-aligned	( size align -- virt )
+	2dup "claim" memory-ih $call-method -rot		( phys size align )
+	over >r "claim" mmu-ih ['] $call-method catch dup if
+		>r 3drop 2drop r> swap r> memory-ih release-this throw
+	then
+	drop tuck r>
+	try-map
+;
+
+\ Claim and map in the given memory specification
+\  as appropriate for the setting of real-mode?
+: claim-mem				( [virt] size align -- baseaddr )
+	dup if
+		adjust-align
+		real-mode? if claim-real-aligned else claim-virt-aligned then
+	else
+		drop real-mode? if claim-real else claim-virt then
+	then
+;
+
+: release-mem			( virt size -- )
+	align-mem-region
+	dup if
+		over "translate" mmu-ih $call-method 0= abort" could not TRANSLATE"
+		drop -rot				( phys virt size )
+		2dup "unmap" mmu-ih $call-method
+		tuck "release" mmu-ih $call-method
+		"release" memory-ih $call-method
+	else
+		2drop
+	then
+;

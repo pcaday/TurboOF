@@ -1,0 +1,124 @@
+device-end
+
+
+0 value mmu-ih
+0 value memory-ih
+0 value stdin
+0 value stdout
+
+( /: initially created with name "device-tree", no model. )
+(	uses #address-cells = #size-cells = 1, as is reasonable on the system bus )
+
+dev /
+
+" device-tree" device-name
+1 encode-int 2dup
+"#address-cells" property
+"#size-cells" property
+busfreq encode-int " clock-frequency" property
+
+: open		true ;
+: close		;
+: decode-unit	1 parse-nhex ;
+: encode-unit	(u.h) ;
+
+: (map-in)	( phys size mode -- virt )
+	>r 2dup 0 "claim" mmu-ih ['] $call-method catch if
+		3drop 3drop
+		dup 10 "claim" mmu-ih $call-method		( ask for a virt )
+	then
+	tuck r> swap >r "map" mmu-ih $call-method r>
+;
+
+: map-in	( phys size -- virt )
+	-1 (map-in)
+;
+
+: map-out	( virt size -- )
+	2dup " unmap" mmu-ih $call-method
+	"release" mmu-ih $call-method
+;
+
+
+: dma-alloc	( size -- virt )
+	dma-alignment alloc-mem-aligned
+;
+
+: dma-free	( virt size -- )
+	free-mem
+;
+
+: dma-sync	( virt devaddr size )
+	nip flush
+;
+
+: dma-map-in	( virt size cacheable? -- devaddr )
+	drop over "translate" mmu-ih $call-method
+	0= abort" invalid virtual address"
+	drop
+	tuck >r dma-sync r>
+;
+
+: dma-map-out	( virt devaddr size )
+	dma-sync
+;
+
+
+(new-child) to /aliases
+( /aliases: initially blank; built-in devices should use devalias )
+(		to create aliases to themselves )
+
+" aliases" device-name
+
+child-end
+
+
+
+new-child
+( /openprom: firmware description. "model" could be personalized. )
+
+" openprom" device-name
+" Scumware" model
+0 0 " relative-addressing" property
+
+child-end
+
+(new-child) to /chosen
+
+" chosen" device-name
+
+0 encode-int "stdin" property
+0 encode-int "stdout" property
+0 encode-int "memory" property
+0 encode-int "mmu" property
+
+child-end
+
+
+(new-child) to /packages
+
+" packages" device-name
+
+
+child-end
+
+
+unselect-dev
+
+
+
+( Global words relating to "chosen" )
+
+: set-chosen-int	( n paddr plen -- )
+	/chosen get-package-property if -88 throw then
+	drop !-be
+;
+
+: is-memory		( ihandle -- )
+	dup to memory-ih "memory" set-chosen-int
+;
+
+: is-mmu		( ihandle -- )
+	dup to mmu-ih "mmu" set-chosen-int
+;
+

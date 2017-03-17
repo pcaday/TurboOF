@@ -1,0 +1,57 @@
+\ First, temporarily map in VIA.
+
+pt-mask pagetab via-base dup 2A map-page
+>r drop 1000 + dup r> map-page 3drop 2drop
+
+align here via-base , 2000 , via-base , 2A , 4 cells (xlat>)
+
+
+\ The VIA timer increments once per 1.27655 µs, Å 783361 ticks/sec
+BF401 constant via-tick/s
+
+800 constant t1-ctr-lo
+A00 constant t1-ctr-hi
+1600 constant actl
+
+
+: via-reg!	via-base + xb! ;	( n off -- )
+: via-reg@	via-base + xb@ ;	( off -- n )
+
+: set-tmr1	FF dup t1-ctr-lo via-reg! t1-ctr-hi via-reg! ;
+: read-tmr1
+	t1-ctr-hi via-reg@ t1-ctr-lo via-reg@ t1-ctr-hi via-reg@ >r dup if
+		swap r> drop
+	else
+		nip r>
+	then
+	8 << or
+;
+
+: time-1		( cycles -- tb-cycles via-ticks )
+	>r set-tmr1 tb@ r> cycles tb@ read-tmr1 FFFF xor >r 2swap d- drop r>
+;
+
+: time-cpu		( -- )
+	C actl via-reg!
+
+	40 time-1 2drop
+	200000 time-1 >r
+	100000 time-1
+	r> swap - >r -
+	40100000 BF r@ um/mod nip swap
+	via-tick/s um* r> um/mod nip
+
+	clean-frequency to tbfreq
+	clean-frequency to cpufreq
+	tb>bus
+;
+
+time-cpu
+
+
+\ Now map out VIA
+
+pt-mask pagetab via-base unmap-page
+1000 + unmap-page 3drop
+
+0 0 (xlat>)

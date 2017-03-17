@@ -1,0 +1,198 @@
+fcode-version2
+hex
+
+headers
+
+0 value memprop-base
+80 value memprop-size
+variable >avail
+my-self ihandle>phandle constant my-package
+
+here to memprop-base memprop-size allot
+
+" memory" device-name
+" memory" device-type
+
+/n 2* constant /avail
+
+" mem-existing mem-#existing" eval
+/avail * dup >avail ! 2dup memprop-base swap move
+" reg" property
+
+: #>avail	>avail @ /avail / ;
+
+: avail-swap		( -- )
+	tokenizer[ 60B emit-byte ]tokenizer " le?"
+	if memprop-base >avail @ lbflips then
+;
+
+: avail-sync		( -- )
+	memprop-base >avail @ " available" my-package
+	tokenizer[ 60B emit-byte ]tokenizer " (property)"
+;
+
+: avail-e>i			( -- )
+	avail-swap
+	0 memprop-base cell+ #>avail 0 ?do
+		>r r@ @ dup r@ /n - @ + r@ ! + r> 2 na+
+	loop drop
+	>avail @ 4 cells = if
+		0= if
+			memprop-base 2 cells erase 2 cells >avail !
+		then
+	else
+		drop
+	then
+;
+
+: avail-i>e			( -- )
+	memprop-base cell+ #>avail 0 ?do
+		>r r@ @ r@ /n - @ - r@ ! r> 2 na+
+	loop drop
+	>avail @ 2 cells = if
+		memprop-base cell+ @ 0= if
+			80000000 dup dup memprop-base >r r@ cell+ ! r@ 2 na+ ! r> 3 na+ !
+			4 cells >avail !
+		then
+	then
+	avail-swap
+;
+
+: memprop-enlarge		( -- )
+	tokenizer[ 60B emit-byte ]tokenizer " align"
+	here memprop-size 2* tuck allot
+	memprop-base over >avail @ move
+	to memprop-base
+	to memprop-size
+;
+
+: avail-insert		( addr -- addr' )
+	memprop-base -
+	>avail @ dup memprop-size >= if
+		memprop-enlarge
+	then
+	dup 2 na+ >avail !
+	over - >r
+	memprop-base + dup dup 2 na+ r> move
+;
+
+: avail-remove		( addr -- )
+	>r r@ 2 na+ r> >avail @ >r r@ over memprop-base - - move
+	r> -2 na+ >avail !
+;
+
+: avail+			( begin end addr -- )
+	/n - >r over r@ @ = r@ memprop-base > and
+	over r@ cell+ @ = r@ cell+ memprop-base - >avail @ < and
+	if
+		if
+			r@ 2 na+ @ r@ ! r> cell+ avail-remove 2drop
+		else
+			drop r> cell+ !
+		then
+	else
+		if
+			r> ! drop
+		else
+			r> cell+ avail-insert >r r@ cell+ ! r> !
+		then
+	then
+;
+
+: avail-			( begin end addr -- )
+	>r over r@ @ =
+	over r@ cell+ @ =
+	if
+		if
+			r> avail-remove 2drop
+		else
+			drop r> cell+ !
+		then
+	else
+		if
+			r> ! drop
+		else
+			r> avail-insert >r r@ 2 na+ ! r> cell+ !
+		then
+	then
+;
+
+: (claim)			( begin end -- base )
+	>r dup r>
+	memprop-base #>avail 0 ?do
+		>r 2dup 1- r@ cell+ @ 1- u<=			\ 1- before compare for ranges extending to the end of virtual memory
+		swap r@ @ u>=
+		and if
+			r> avail- unloop exit
+		then
+		r> 2 na+
+	loop
+	avail-i>e -84 throw
+;
+
+: (claim-aligned)		( size align -- base )
+	1- memprop-base #>avail 0 ?do
+		>r 2dup r@ @ over + swap not and
+		tuck + 1- r@ cell+ @ 1- u<=
+		if
+			nip swap >r dup dup r> + r> avail- unloop exit
+		then
+		drop r>
+		2 na+
+	loop
+	avail-i>e -84 throw
+;
+
+
+external
+
+: claim				( [virt] size align -- base )
+	>r dup 0= if -84 throw then
+	avail-e>i
+	r@ if
+		r> (claim-aligned)
+	else
+		r> drop over + 2dup u> over 0<> and if avail-i>e -84 throw then
+		(claim)
+	then
+	avail-i>e
+	avail-sync
+;
+
+: release			( virt size -- )
+	dup 0= if 2drop exit then
+	2dup tokenizer[ 60B emit-byte ]tokenizer " in-ram?" 0= if -8A throw then
+	avail-e>i
+	over +
+	memprop-base #>avail 0 ?do
+		over 1- over @ u< ?leave
+		2 na+
+	loop
+	>r r@ memprop-base > if
+		over r@ /n - @ 1- u<= if avail-i>e -85 throw then 
+	then r>
+	avail+ avail-i>e
+	avail-sync
+;
+
+: open		true ;
+: close		;
+
+
+avail-sync
+
+headerless
+
+: pre-claim		( virt size -- )
+	0 ' claim catch if
+		2drop
+	then
+	drop
+;
+
+
+" real_base real_size" eval pre-claim
+00000000 4000 pre-claim
+FFF00000 4000 pre-claim
+
+fcode-end

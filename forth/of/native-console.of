@@ -1,0 +1,59 @@
+variable (key-wait)
+(key-wait) char+ constant (key-buf)
+variable (emit-buf)
+
+: (key)
+	(key-wait) c@ dup if (key-wait) off exit then drop
+	begin
+		rest
+		(key-buf) 1 "read" stdin $call-method
+	until
+	(key-buf) c@
+;
+
+: (key?)
+	(key-wait) c@ if
+		true
+	else
+		(key-wait) 1 "read" stdin $call-method 0 <>
+	then
+;
+
+: ((emit))
+	(emit-buf) tuck c! 1 "write" stdout $call-method drop
+;
+
+: input
+	2dup find-phandle
+	>r "read" r> find-method 0= abort" cannot READ device" drop
+	open-device >r
+	" install-abort" r@ $?call-method
+	
+	stdin if
+		stdin >r " remove-abort" r@ $?call-method r> close-dev
+	then
+	
+	r@ to stdin
+	r> "stdin" set-chosen-int
+	
+	(key-wait) off
+	['] (key) to key
+	['] (key?) to key?
+;
+
+: output
+	2dup find-phandle
+	>r "write" r> find-method 0= abort" cannot WRITE device" drop
+	open-device
+	
+	stdout if
+		stdout close-dev
+	then
+
+	dup to stdout
+	"stdout" set-chosen-int
+	
+	['] ((emit)) to (emit)
+;
+
+: io		2dup input output ;

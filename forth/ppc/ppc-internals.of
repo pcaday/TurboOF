@@ -1,0 +1,64 @@
+: (exception-catch)
+	." exception: "
+	internals
+	dup C + ?
+	." srr0: "
+	dup 30 + ?
+	." srr1: "
+	dup 34 + ?
+	." dsisr: "
+	dup 38 + ?
+	." dar: "
+	3C + ?
+;
+
+( -- ee-on? )
+: ee?		msr@ 8000 and 0<> ;
+
+: ee!			( new-ee -- )
+	if
+		msr@ 8000 or
+	else
+		msr@ 8000 not and
+	then
+	msr!
+;
+
+0 (field) int>forth-up
+40 (field) int>ehandler
+44 (field) int>uehandler
+48 (field) int>schandler
+4C (field) int>ahandler
+50 (field) int>dec-init
+54 (field) int>return-addr
+
+60 (field) int>bits
+
+94 (field) int>of-ctx
+98 (field) int>client-ctx-r
+9C (field) int>client-ctx
+A0 (field) int>f-ci-handler
+AC (field) int>f-cx-handler
+
+
+' (exception-catch) to exception-catch
+
+internals
+' (exception) over int>ehandler !
+' (unrecoverable) over int>uehandler !
+int>forth-up on
+
+internals B4 +
+internals 1A0 +
+40 move
+
+
+false value translate-callback?
+false value alloc-callback?
+
+
+: (ppc-environment?)		( addr len -- false | x*i true )
+	2dup " stack-cells" $= >r " return-stack-cells" $= r> or if
+		2drop 400 true exit
+	then
+;

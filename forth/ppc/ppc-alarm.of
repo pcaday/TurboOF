@@ -1,0 +1,22 @@
+: (alarms!)
+	if
+		800 dec spr! true ee!
+	else
+		false ee!
+	then
+;
+
+' ee? to alarms?
+' (alarms!) to alarms!
+
+: (>alarm-scan)
+	alarm-scan
+	msr@ 8000 or >interrupted
+;
+
+internals
+
+false alarms!
+tbfreq d# 1000 u/ over int>dec-init !
+' (>alarm-scan) swap int>ahandler !
+

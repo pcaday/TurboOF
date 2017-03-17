@@ -1,0 +1,23 @@
+dev /
+new-child
+" screen" device-name
+
+82800800 constant fb-address
+400 constant fb-width
+300 constant fb-height
+
+: my-open
+	fb-address to frame-buffer-adr
+	fb-width 1E0 200 char-width / 1E0 char-height / fb8-install
+	0 to window-left
+	0 to window-top
+	true
+;
+
+: my-close ;
+
+' my-open is-install
+' my-close is-remove
+
+child-end
+device-end

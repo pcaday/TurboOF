@@ -1,0 +1,186 @@
+
+" file-loader" device-name
+
+
+\ **** Keep track of memory claimed by file loaders and release it
+\       when client calls "exit". That way there is a greater chance
+\       of being able to immediately boot another client.
+
+
+10 constant max-client-rgns
+0 value #client-rgns
+max-client-rgns cells 2* buffer: client-rgns
+
+: claim-client-real			( phys size -- )
+	2dup claim-real drop
+	#client-rgns max-client-rgns < if
+		#client-rgns dup 1+ to #client-rgns
+		cells 2* client-rgns +	( phys size ptr )
+		2!
+	else
+		2drop
+	then
+;
+
+: release-client-mem		( -- )
+	client-rgns #client-rgns cells 2* bounds ?do
+		i 2@ release-mem
+	2 cells +loop
+	0 to #client-rgns
+;
+
+10.0000 constant load-area-size
+
+: (map-load-area)			( -- )
+	load-base load-area-size
+	over in-of-mem? if
+		2drop
+	else
+		0 ['] claim-mem catch
+		abort" could not CLAIM load area"
+		drop
+	then
+;
+
+: (release-load-area)		( -- )
+	load-base load-area-size
+	over in-of-mem? if
+		2drop
+	else
+		release-mem
+	then
+;
+
+
+0 (field) xcoff-fh>magic
+2 (field) xcoff-fh>nscns
+10 (field) xcoff-fh>oh-len
+14 (field) xcoff-fh>oh
+
+48 constant /xcoff-oh
+
+10 (field) xcoff-oh>entry
+
+
+0 (field) xcoff-scn>name
+8 (field) xcoff-scn>phys
+10 (field) xcoff-scn>len
+14 (field) xcoff-scn>offset
+24 (field) xcoff-scn>flags
+28 (field) xcoff-scn>next
+
+1DF constant xcoff-ppc-magic
+
+
+: (xcoff-section-type)		( scn-addr -- 0 [text] | 1 [data] | 2 [bss] | 3 [unknown] )
+	dup xcoff-scn>flags l@-be			( scn flags )
+	dup 20 and if
+		2drop 0 exit
+	then
+	dup 40 and if
+		2drop 1 exit
+	then
+	dup 80 and if
+		2drop 2 exit
+	then
+	drop
+	
+	xcoff-scn>name
+	dup " .text"(00)" comp 0= if drop 0 exit then
+	dup " .data"(00)" comp 0= if drop 1 exit then
+	dup " .bss"(00)" comp 0= if drop 2 exit then
+	
+	drop 3
+;
+
+: (xcoff-section-name)		( scn-addr -- addr len )
+	xcoff-scn>name 8 c>f$-max
+;
+
+defer (file-loader-copy)
+:noname
+	3dup move exec'able drop
+; to (file-loader-copy)
+
+defer (file-loader-bss)
+:noname
+	2dup erase exec'able
+; to (file-loader-bss)
+
+: (xcoff-section-copy)		( scn -- )
+	>r
+	r@ xcoff-scn>len l@-be 0= if ."   [empty]" exit then
+	r@ xcoff-scn>offset l@-be load-addr +
+	r@ xcoff-scn>phys l@-be ."   [" dup .cell [char] : emit
+	r> xcoff-scn>len l@-be 2dup + 1- .cell [char] ] emit
+					( src dest-phys len )
+	2dup claim-client-real
+	(file-loader-copy)
+;
+
+: load-xcoff				( -- successful? )
+	load-addr dup xcoff-fh>magic w@-be xcoff-ppc-magic <> if drop false exit then
+	dup xcoff-fh>oh-len w@-be /xcoff-oh <> if drop false exit then		( must have opthdr )
+	
+	cr ." loading XCOFF... "
+
+	dup xcoff-fh>nscns w@-be ." #sections = " dup .d
+	swap xcoff-fh>oh								( nscns oh -- )
+	dup xcoff-oh>entry l@-be to entrypoint				\ will fixup after loading
+
+	/xcoff-oh +										( nscns section1 -- )
+	swap 0 ?do
+		cr space i 1+ .d
+		dup (xcoff-section-type) case
+			0 of
+				."  copying .text"
+				dup (xcoff-section-copy)
+			endof
+			1 of
+				."  copying .data"
+				dup (xcoff-section-copy)
+			endof
+			2 of
+				."  clearing .bss  ["
+				dup xcoff-scn>len l@-be >r r@ 0= if
+					rdrop ." empty]"
+				else
+					dup xcoff-scn>phys l@-be dup .cell [char] : emit
+					r> 2dup + 1- .cell [char] ] emit
+							( bss-phys len )
+					2dup claim-client-real
+					(file-loader-bss)
+				then
+			endof
+			3 of
+				."  ignoring " dup (xcoff-section-name) type
+			endof
+		endcase
+		
+		xcoff-scn>next
+	loop drop
+
+	entrypoint @ to entrypoint				\ get the entrypoint from the function descriptor
+	cr ." entrypoint = " entrypoint .cell cr
+	false to client-le?
+	release-load-area
+	true
+;
+
+: load-forth			( -- successful? )
+	load-addr c@ 2F = dup if			( must start with a backslash )
+		true to forth-load?
+		load-addr to entrypoint
+	then
+;
+
+: load-file				( addr len -- )
+	to load-size
+	to load-addr
+	load-xcoff 0= if
+		load-forth 0= if
+			true abort" unknown file type"
+		then
+	then
+;
+

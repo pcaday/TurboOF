@@ -1,0 +1,1051 @@
+struct
+	/n field n>next
+	/n field n>child
+	/n field n>parent
+	/n field n>chain
+	/n field n>method
+	/n field n>prop
+	/n field n>idata
+	/n field n>ilen
+drop
+
+struct
+	/n field p>next
+	/n field p>plen
+	/n field p>pdata
+	/n field p>nlen
+	0 field p>name
+drop
+
+struct
+	/n field i>parent
+	/n field i>len
+	/n field i>pack
+	/n field i>idata-state
+	/n field i>alen
+	100 field i>args
+	/n field i>ucells
+	0 field i>unit
+(	0 field i>probe	)
+(	0 field i>data	)
+drop
+
+: i>probe	i>ucells dup @ 1+ cells + ;
+: i>data	i>ucells dup @ 2* 1+ cells + ;
+
+: push-package	r> active-package >r >r ;
+: pop-package	r> r> to active-package >r ;
+
+: push-instance	r> my-self >r >r ;
+: pop-instance	r> r> to my-self >r ;
+
+
+
+: clean-last	( -- )
+	last @ dup if
+		dup d>type c@ tinv and if
+			last off
+			
+			dup d>pack @ dup if
+				n>method
+			else
+				drop dup list @ = if
+					dup d>link @ list !
+				then
+				dup d>name over d>len c@ +hash head chunk
+			then
+			
+			2dup @ = if
+				>r dup d>next @ r> !
+			else
+				drop rdrop
+			then
+		then
+	then
+	drop
+;
+
+: (new-method)
+	align over dup
+	aligned here + /de + >r here >r r@ last !
+	c,
+	tinv or c,
+	active-package r> over n>method >r r@ @ dup , , r> !
+	r@ ,
+	0 ,
+	,
+	here swap move
+	r@ exec'able-at
+	r> dp!
+;
+
+: (new-def-of)
+	clean-last
+	active-package if
+		(new-method)
+	else
+		(new-def)
+	then
+;
+
+' (new-def-of) dup to new-def to (default-new-def)
+
+: find-method
+	n>method @ (((find))) if
+		d>interp @ true
+	else
+		false
+	then
+;
+
+: ((find-of))
+	#locals if
+		state @ if
+			2dup locals @ (((find))) if chunk true exit then
+		then
+	then
+	active-package if
+		2dup
+		active-package n>method @ (((find)))
+		if chunk true exit then
+	then
+	+hash head @ (((find)))
+;
+
+: forget
+	(find-parse) dup d>link @
+	dup last !
+					( d next-word )
+	swap d>pack @ dup if
+		n>method !
+	else
+		drop dup list ! 
+		#hash 0 ?do
+			i head @
+			begin
+				2dup u<
+			while
+				d>next @
+			repeat
+			i head !
+		loop drop
+	then
+;
+
+: (marker-of)	dup n>method @ create , , does> 2@ swap n>method ! ;
+
+: (marker)	list @ #hash 1+ 1 ?do #hash i - head @ loop create #hash 1+ 0 do , loop
+		does> #hash 0 ?do dup @ i head ! cell+ loop @ dup list ! last ! ;
+		
+: marker	active-package dup if (marker-of) else drop (marker) then ;
+
+
+: call-package	push-instance to my-self execute pop-instance ;
+: $call-method	dup >r i>pack @ find-method 0= if -81 throw then r> call-package ;
+: ($call-method) my-self i>pack @ find-method if catch 0= else 0 then ;
+: $?call-method	dup >r i>pack @ find-method 0= if rdrop else r> call-package then ;
+: call-static	find-method if execute else -81 throw then ;
+
+: (wordlist-of)		( -- addr )
+	active-package dup if
+		n>method
+	else
+		drop list
+	then
+;
+' (wordlist-of) to wordlist
+
+' ((find-of)) dup to (find) to (default-find)
+
+: ?active-package	active-package dup 0= if -8C throw then ;
+: ?my-self		my-self dup 0= if -8D throw then ;
+
+: traverse	( phandle -- phandle' )
+	begin
+		dup @ dup
+	while
+		nip
+	repeat
+	drop
+;
+
+: (get-package-property)
+	n>prop
+	begin
+		@ >r r@
+	while
+		2dup r@ p>name r@ p>nlen @ $= if
+			2drop r> false exit
+		then
+		r>
+	repeat
+	rdrop 2drop true
+;
+
+: get-package-property
+	(get-package-property) if true else dup p>pdata @ swap p>plen @ false then
+;
+
+: get-my-property
+	?my-self i>pack @ get-package-property
+;
+
+: get-inherited-property
+	?my-self
+	begin
+		>r 2dup r@ i>pack @ get-package-property
+	while
+		r> i>parent @ dup 0= if 3drop true exit then
+	repeat
+	rdrop 2nip false
+;
+
+: (property)
+	>r 2dup r@ (get-package-property) if
+		r> n>prop dup @ if
+			@ traverse p>next
+		then
+		align here swap !
+		0 , 2swap , , dup , tuck here swap move allot
+	else
+		chunk rdrop
+		tuck p>plen ! p>pdata !
+	then
+;
+
+: property	?active-package (property) ;
+
+: decode-int	over >r >r cell+ r> cell- r> l@-be ;
+: encode-int	here tuck l!-be /l /l allot ;
+
+: decode-bytes	>r over r@ + swap r@ - rot r> ;
+: encode-bytes	>r here tuck r@ move r@ allot r> ;
+
+: decode-string >r 0 begin dup r@ u< while 2dup + c@ 0= if 2dup + char+ over r> - negate char- 2swap exit then char+ repeat rdrop 2dup + 0 2swap ;
+: encode-string	encode-bytes 0 c, 1+ ;
+
+: encode+	nip + ;
+
+: x*@		dup >r cells + r> 0 ?do cell- dup @ swap loop drop ;	( addr x -- x*i )
+: x*!		0 ?do tuck ! cell+ loop drop ;				( x*i addr x -- )
+: x*!-be	0 ?do tuck !-be cell+ loop drop ;			( x*i addr x -- )
+: x*drop	0 ?do drop loop ;					( x*i x -- )
+
+: (#address-cells)		( phandle -- n )
+	"#address-cells" rot get-package-property if
+		2 0 "decode-unit" defined? iff
+	else
+		decode-int chunk
+	then
+;
+
+: (#parent-address-cells)	( phandle -- n )
+	n>parent @ dup if (#address-cells) then
+;
+
+: #address-cells
+	?active-package (#parent-address-cells)
+;
+
+: (decode-phys)	>r r@ cells tuck - >r + r> over r> 0 ?do cell- dup @-be swap loop drop ;
+: decode-phys	#address-cells (decode-phys) ;
+: encode-phys	here >r r@ #address-cells >r r@ 0 ?do tuck !-be cell+ loop dp! r> cells r> swap ;
+
+
+create root	here 0 , 0 , 0 , , 0 , 0 , 0 , 0 ,
+
+400 constant max-idata
+variable >i
+variable instance-flag
+variable idata-open?
+
+: ck-idata-open			( -- )
+	instance-flag off
+	idata-open? @ not abort" package finished"
+;
+
+: push-idata			( -- )
+	my-self if
+		idata-open? dup if
+			drop >i @ not
+		then
+		my-self i>idata-state !
+	then
+;
+
+: pop-idata			( -- )
+	my-self dup if
+		i>idata-state @ dup if
+			idata-open? on not >i ! exit
+		then
+	then
+	drop idata-open? off
+;
+
+: open-idata			( -- )
+	push-idata
+	>i off
+	idata-open? on
+	max-idata active-package n>ilen !
+;
+
+: freeze-idata			( -- )
+	idata-open? @ if
+		>i @ >r r@ active-package n>ilen !
+		align here
+		dup active-package n>idata !
+		my-self i>data swap r@ move
+		r> allot
+	then
+;
+
+: instance	?active-package drop instance-flag on ;
+: i,		my-self i>data >i @ + ! /n >i +! ;
+: i-allot	>i +! ;
+: ?my-data>	2@ ?my-self >r r@ i>pack @ n>chain @ <> if -8D throw then r> i>data + ;
+\ : ?my-data>	@ ?my-self i>data + ;
+
+: instance-variable
+	/n i-allot does> ?my-data> ;
+
+: instance-2variable
+	[ /n 2* ] literal i-allot does> ?my-data> ;
+
+: instance-buffer:
+	i-allot does> ?my-data> ;
+
+: instance-value
+	i, [ tvalue tinst or ] literal set-type does> ?my-data> @ ;
+
+: instance-2value
+	i, i, [ t2value tinst or ] literal set-type does> ?my-data> 2@ ;
+
+: instance-defer
+	['] noop i, [ tdefer tinst or ] literal set-type does> ?my-data> @ execute ;
+
+: instance-create
+	create , , does> instance-flag @ if
+		ck-idata-open create active-package , >i @ ,
+		last @ d>type dup c@ tinst or swap c!
+	else
+		cell+
+	then @ execute
+;
+
+' variable ' instance-variable instance-create variable
+' buffer: ' instance-buffer: instance-create buffer:
+' value ' instance-value instance-create value
+' defer ' instance-defer instance-create defer
+' 2variable ' instance-2variable instance-create 2variable
+' 2value ' instance-2value instance-create 2value
+
+:noname		>body ?my-data> ! ; dup to (instance-to) to (instance-is)
+:noname		>body ?my-data> 2! ; to (instance-2to)
+
+: my-address	?my-self dup i>probe swap i>ucells @ dup if 1- x*@ else 2drop then ;
+: my-args	?my-self dup i>args swap i>alen @ ;
+: my-parent	?my-self i>parent @ ;
+: my-space	?my-self i>probe @ ;
+: my-unit	?my-self dup i>unit swap i>ucells @ x*@ ;
+
+: $call-parent	my-parent dup 0= abort" no parent instance" $call-method ;
+
+: (invoke)		( phandle -- ihandle )
+	dup (#parent-address-cells) >r r@
+	2* 1+ cells i>ucells over n>ilen @ + >r r@ alloc-mem dup r@ erase
+	tuck my-self over ! cell+ r> over ! cell+ ! r> over i>ucells !
+	dup to my-self
+;
+
+: invoke		( phandle -- ihandle )
+	dup (invoke) >r
+	"reg" get-my-property 0= if
+		decode-phys r@ i>unit r@ i>ucells @ x*! 2drop
+	then
+	dup n>idata @ swap n>ilen @ r@ i>data swap move
+	r>
+;
+
+: (new-child)		( -- phandle )
+	?active-package dup
+	n>child dup @ if
+		@ traverse n>next
+	then
+	align here swap !
+	here tuck to active-package
+	0 , 0 , , dup , 0 , 0 , 0 , 0 ,
+;
+
+: new-child	(new-child) drop ;
+: new-device	(new-child) open-idata (invoke) drop ;
+
+: set-arg-str		( arg-str arg-len -- )
+	100 min my-self 2dup i>alen !
+	i>args swap move
+;
+
+: set-args
+	"decode-unit" ?active-package n>parent @ find-method
+	if
+		execute ?my-self dup i>probe swap i>ucells @ x*!
+	else
+		2drop
+	then
+	set-arg-str
+;
+
+: destroy-instance	( ihandle -- )
+	dup i>len @ free-mem
+;
+
+: close-package
+	>r "close" r@ $?call-method
+	r> destroy-instance
+;
+
+: destroy-my-self	( -- )
+	my-self dup i>parent @ to my-self destroy-instance	
+;
+
+: child			dup if n>child @ then ;
+: peer			dup if n>next @ else drop root then ;
+: ihandle>phandle	dup if i>pack @ then ;
+
+: next-property
+	over if
+		(get-package-property) if false exit then p>next
+	else
+		chunk n>prop
+	then
+	@ dup if
+		dup p>name swap p>nlen @ true
+	then
+;
+
+: (delete-property)
+	n>prop
+	begin
+		dup >r @ dup
+	while
+		>r 2dup r@ p>name r@ p>nlen @ $= if
+			r> p>next @ r> ! 2drop exit
+		then
+		r> rdrop p>next
+	repeat rdrop 3drop
+;
+
+: delete-property	?active-package (delete-property) ;
+
+: delete-device		( phandle -- )
+	dup n>parent @ n>child
+	begin
+		dup >r @ dup
+	while
+		2dup = if
+			drop n>next @ r> ! exit
+		then
+		rdrop n>next
+	repeat rdrop 3drop
+;
+
+0 value default-screen
+0 value screen
+
+: check-for-screen		( -- )
+	active-package default-screen <> if
+		" device_type" active-package get-package-property not if
+			decode-string 2nip " display" $= if	
+				active-package to screen
+			then
+		then
+	then
+;
+
+: finish-device
+	?active-package >r "name" r@ (get-package-property) if
+		r@ delete-device
+	else
+		drop freeze-idata
+		check-for-screen
+	then
+	r> n>parent @ to active-package
+	my-self if destroy-my-self then
+	pop-idata
+;
+
+: child-end	?active-package n>parent @ to active-package ;
+: device-end	0 to active-package ;
+alias unselect-dev device-end
+
+: device-name	encode-string "name" property ;
+: device-type	encode-string "device_type" property ;
+: model		encode-string s" model" property ;
+: driver	[char] , left-parse-string 2 pick if 2drop else 2nip then device-name ;
+: reg		>r encode-phys r> encode-int encode+ "reg" property ;
+
+0 value /aliases
+0 value /packages
+0 value /options
+0 value /defaults
+0 value /chosen
+
+
+: concat		( str1 len1 str2 len2 -- str1 len )
+	>r >r 2dup + r> swap r@ move r> +
+;
+
+: concat-to		( str1 len1 str2 len2 str3 -- str3 len3 )
+	>r 2swap r@ swap dup >r move 2r> 2swap concat
+;
+
+: parse-int	-leading -trailing $number if 0 then ;	( str len -- n | 0 [inconvertible] )
+: parse-ints		( str len x -- x*n )
+	>r r@ -rot r> begin
+		1- dup
+	while
+		>r [char] , left-parse-string
+		parse-int r> swap >r
+	repeat
+	drop parse-int
+	begin swap 1- dup while r> repeat drop
+;
+
+: parse-2int	2 parse-ints ;
+
+: parse-nhex		( str len x -- x*n )
+	base @ >r hex parse-ints r> base !
+;
+
+: lookup-last		( str len phandle -- phandle | 0 )
+	0 >r n>child
+	begin
+		@ dup
+	while
+		>r "name" r@ get-package-property if
+			r>
+		else
+			1- 2over $= if r> rdrop dup >r else r> then
+		then n>next
+	repeat 3drop r>
+;
+
+: lookup-alias		( str len -- str len found? )
+	/aliases if
+		2dup "name" $= if
+			false
+		else
+			2dup /aliases get-package-property 0= dup if
+				>r 1- 2nip r>
+			then
+		then
+	else
+		false
+	then
+;
+
+10 cells buffer: this-unit
+0 value this-unit?
+0 value this-#address-cells
+variable wild
+
+0 0 2value last-args
+
+100 constant #finddev-buf
+#finddev-buf dup buffer: finddev-1
+buffer: finddev-2
+
+defer finddev-inter
+
+: node-$=		( nstr nlen str len -- f )
+	2over [char] , left-parse-string 2drop dup if
+		2over $= if 2drop 2drop true exit then
+	else 2drop then
+	$=
+;
+
+: (match-both)		( nstr nlen phandle -- nstr nlen phandle match? )
+	>r dup if
+		"name" r@ get-package-property 0= dup if
+			drop 1- 2over node-$= 0=
+		then
+		if r> false exit then
+	else
+		this-unit? not if r> false exit then
+	then
+
+	"reg" r@ get-package-property if
+		wild @ 0= if
+			r@ wild !
+		then
+		r> this-unit? not
+	else
+		this-unit? if
+			drop this-unit this-#address-cells cells comp
+			0= r> swap
+		else
+			2drop r> true
+		then
+	then
+;
+
+: (match-iterate)	( nstr nlen phandle xt -- phandle true | nstr nlen false )
+	>r begin
+		@ dup
+	while
+		r@ execute
+	until
+		chunk true 
+	else
+		drop false
+	then rdrop
+;
+
+: (find-node)		( ustr ulen nstr nlen -- phandle true | false )
+	2swap dup 0<> dup to this-unit? if 
+		"decode-unit" active-package find-method not if
+			2drop 2drop false exit
+		then
+		execute this-unit
+		active-package (#address-cells) dup to this-#address-cells x*!-be
+	else
+		2drop
+	then
+
+	wild off
+	active-package n>child
+	['] (match-both) (match-iterate)
+	dup 0= if
+		3drop wild @ ?drop-0<>
+	then
+;
+
+: (find-device)		( str len -- phandle true | false )
+	dup 0= if 2drop active-package ?dup 0<> exit then
+	push-package
+
+	over c@ [char] / <> if
+		2dup
+		[char] / split-before
+		[char] : split-before
+		lookup-alias if
+			2 pick if
+				[char] / split-after
+				[char] : split-before
+				2nip
+				finddev-1 concat-to
+				2swap concat
+			else
+				2nip
+			then
+			2swap finddev-2 concat-to
+			2nip
+		else
+			2drop 2drop 2drop
+		then
+	then
+
+	dup if
+		over c@ [char] / = if
+			1 /string
+			root to active-package
+		then
+	
+		active-package 0= if
+			2drop pop-package false exit
+		then
+		
+		begin
+			dup
+		while
+			finddev-inter not if
+				2drop pop-package
+				false exit
+			then
+			[char] / left-parse-string
+			[char] : left-parse-string
+			[char] @ left-parse-string
+			(find-node) not if
+				2drop 2drop pop-package
+				false exit
+			then
+			to active-package
+			2to last-args
+		repeat
+	then
+
+	2drop active-package pop-package true
+;
+
+: find-device
+	2dup s" .." $= if
+		2drop ?active-package n>parent @ ?dup if to active-package then
+	else
+		['] true to finddev-inter
+		(find-device) if
+			to active-package
+		else
+			-80 throw
+		then
+	then
+;
+
+: find-phandle		push-package find-device active-package pop-package ;	( addr len -- phandle )
+: (find-phandle)	['] find-phandle catch if 2drop false else true then ;	( addr len -- phandle true | false )
+
+: (instance-link)	( -- )
+	active-package invoke drop
+	last-args set-arg-str
+	this-unit? if
+		this-unit my-self dup i>unit swap i>ucells @ cells move
+	then
+;
+
+: try-open		( -- successful? )
+	"open" ($call-method) ?drop 0<>
+;
+
+: instance-link		( -- flag )
+	(instance-link) try-open
+;
+
+: close-dev
+	begin
+		dup
+	while
+		dup i>parent @ swap close-package
+	repeat
+	drop
+;
+
+: open-dev
+	push-package push-instance
+	0 to my-self
+	['] instance-link to finddev-inter
+	(find-device) dup if
+		drop to active-package instance-link 0= if
+			destroy-my-self 0
+		else
+			my-self
+		then
+	then
+	dup 0= if
+		my-self close-dev
+	then
+	pop-instance pop-package
+;
+
+: (execute-device-method)
+	push-package push-instance
+	0 to my-self
+	['] instance-link to finddev-inter
+	2swap (find-device) dup >r if
+		to active-package (instance-link) ($call-method)
+	else
+		false
+	then r> swap
+	destroy-my-self my-self close-dev
+	pop-instance pop-package
+;
+
+: execute-device-method
+	(execute-device-method) nip
+;
+
+: begin-package
+	open-dev dup 0= abort" cannot OPEN parent"
+	dup to my-self i>pack @ to active-package
+	new-device set-args
+;
+
+: end-package
+	finish-device forth my-self close-dev 0 to my-self
+;
+
+: find-package
+	/packages lookup-last ?drop-0<>
+;
+
+: open-package
+	push-instance
+	invoke -rot set-arg-str
+	try-open 0= if
+		destroy-instance 0
+	then
+	pop-instance
+;
+
+: $open-package
+	find-package if
+		open-package
+	else 2drop 0 then
+;
+
+: open-device	2dup throw-$ 2! open-dev dup 0= if -89 throw then ;
+
+: apply
+	parse-word dup 0= if 2drop exit then
+	parse-word dup 0= if 2drop 2drop exit then
+	2swap (execute-device-method)
+	not if
+		0<> -80 + throw
+	then drop
+;
+
+: dev
+	parse-line -leading -trailing dup if
+		find-device
+	else 2drop then
+;
+
+: (chain)		( template-phandle -- )
+	active-package ?my-self i>pack @ <> abort" invalid current instance"
+	idata-open? @ if
+		>i @ abort" package has instance words"
+	then
+	idata-open? off
+	
+	dup n>idata @ over n>ilen @ my-self i>data swap move
+	
+	active-package
+	2dup n>chain !
+	over n>ilen @ over n>ilen !
+	over n>idata @ over n>idata !
+	swap n>method @ swap n>method		( chain-d n>m )
+	dup @ dup if
+		nip begin
+			dup d>link @ dup
+		while
+			nip
+		repeat
+		drop				( chain-d last-d )
+		2dup d>link ! d>next !
+	else
+		drop !
+	then
+;
+
+: chain			( addr len -- )
+	find-phandle (chain)
+;
+
+( ??? method-addr method-len pack-addr pack-len -- ??? )
+: $call-static	find-phandle call-static ;
+
+0 value this-ihandle
+defer get-path-inter		( phandle -- phandle false | ihandle true )
+
+: ($unit+)	( str-end str-remaining xt #address-cells phandle -- str-end' str-rem' )
+	-rot 2>r
+	get-path-inter if
+		i>unit >r 0 0 r> r> x*@
+	else
+		>r " reg" r> get-package-property if rdrop rdrop exit then
+		r> (decode-phys)
+	then
+
+	r> execute 2nip
+	>r >r [char] @ $char+ r> r> cat
+;
+
+: ($node+)	( str-end str-remaining phandle -- str-end' str-remaining' )
+	>r [char] / $char+
+	"name" r@ get-package-property not if 1- cat then
+	
+	r@ n>parent @ >r
+	" encode-unit" r@ find-method if
+		r> (#address-cells)
+		r@ ['] ($unit+) catch if
+			3drop
+		then
+	else
+		rdrop
+	then
+	r> get-path-inter if
+		>r r@ i>alen @ dup if
+			r> i>args swap >r >r [char] : $char+ r> r> cat
+		else
+			rdrop drop
+		then
+	else
+		drop
+	then
+;
+
+: (get-path)	( phandle -- addr len )
+	dup root = if
+		drop " /"
+	else
+		finddev-1 #finddev-buf rot
+		0 >r
+		begin
+			dup root <>
+		while
+			dup >r n>parent @
+		repeat drop
+		begin
+			r> dup
+		while
+			($node+)
+		repeat drop
+		nip #finddev-buf swap - finddev-1 swap
+	then
+;
+
+: get-path	['] false to get-path-inter (get-path) ;
+
+: get-instance-path-inter	( phandle -- phandle false | ihandle true )
+	this-ihandle begin
+		dup
+	while
+		2dup i>pack @ = if
+			nip true exit
+		then
+		i>parent @
+	repeat
+;
+
+: get-instance-path		( ihandle -- addr len )
+	dup to this-ihandle
+	['] get-instance-path-inter to get-path-inter
+	i>pack @ (get-path)
+;
+
+: type-node	( phandle -- )
+	['] false to get-path-inter
+	dup root = if
+		drop [char] / emit
+	else
+		finddev-1 #finddev-buf rot ($node+)
+		nip #finddev-buf swap - finddev-1 swap type
+	then
+;
+
+: hier-dent	2 << spaces ;
+
+: (show-devs)		( indent phandle -- )
+	cr over hier-dent dup type-node
+	>r 1+ r>
+	n>child
+	begin
+		@ dup exit? not and
+	while
+		2dup recurse
+	repeat 2drop
+;
+
+: show-devs
+	parse-word dup if
+		find-device
+	else
+		2drop root
+	then
+	0 swap (show-devs)
+;
+
+: pwd		?active-package get-path type ;
+
+: ls
+	?active-package
+	cr dup type-node
+	n>child
+	begin
+		@ dup exit? not and
+	while
+		dup cr 1 hier-dent type-node
+	repeat drop
+;
+
+: ls-all	?active-package 0 swap (show-devs) ;
+
+
+: prop-string?		( addr len -- string? )
+	dup if
+		char- 2dup + c@ 0= if
+			0 -rot bounds ?do
+				i c@ dup 80 and if unloop 2drop false exit then
+				30 - 4F u< if 1+ else 1- then
+			loop
+			0> exit
+		then
+	then
+	2drop false
+;
+
+20 constant prop-tab
+
+: (.property)		( prop -- )
+	dup p>name over p>nlen @ tuck type
+	prop-tab swap - 0 max spaces
+	dup p>pdata @ swap p>plen @
+	2dup prop-string? if
+		begin
+			0 left-parse-string type dup
+		while
+			cr prop-tab spaces
+		repeat 2drop
+	else
+		dup 100 > if
+			." ..." 2drop
+		else
+			tuck /cells 0 ?do
+				i dup 3 and 0= and if
+					cr prop-tab spaces
+				then
+				dup @-be .cell space na1+
+			loop
+			swap /n1- and bounds ?do
+				i c@ 2 0u.r
+			loop
+		then
+	then
+;
+
+: (.properties)
+	begin
+		@ dup
+	while
+		dup cr (.property) p>next
+	repeat drop
+;
+
+: .properties	?active-package n>prop (.properties) ;
+
+
+: check-/aliases	/aliases 0= abort" no /aliases" ;	( -- )
+
+: devalias
+	check-/aliases
+	parse-word dup if
+		parse-word dup if
+			encode-string 2swap /aliases (property)
+		else
+			2drop /aliases get-package-property if
+				." no such alias"
+			else
+				type
+			then
+		then
+	else
+		2drop /aliases n>prop @ p>next (.properties)
+	then
+;
+
+: $devalias			( path-str path-len name-str name-len -- )
+	check-/aliases 2>r encode-string 2r> /aliases (property)
+;
+
+3.0000 constant fcode-revision
+
+: sbus-intr>cpu	;
+: intr		>r sbus-intr>cpu encode-int r> encode-int encode+ s" intr" property ;
+
+: free-virtual	
+	over " address" get-my-property 0= if
+		decode-int chunk over = if
+			" address" my-self i>pack @ (delete-property)
+		then
+	then
+	" map-out" $call-parent
+;
+
+: map-low	my-space swap " map-in" $call-parent ;

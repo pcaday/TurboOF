@@ -1,0 +1,12 @@
+: shortcut		( method-addr method-len " <device-spec>" -- )
+	parse-line
+	open-device >r
+	r@ ['] $call-method catch
+	r> close-dev
+	throw
+;
+
+: eject		" eject" shortcut ;		( " <device-spec>" -- )
+: inject	" inject" shortcut ;	( " <device-spec>" -- )
+: ls-parts	" ls-parts" shortcut ;	( " <device-spec>" -- )
+: dir		" dir" shortcut ;		( " <device-spec>" -- )

@@ -1,0 +1,7 @@
+dev /packages/file-loader
+' load-file to (load)
+' (map-load-area) to map-load-area
+' (release-load-area) to release-load-area
+unselect-dev
+
+' noop to (boot)

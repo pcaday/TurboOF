@@ -1,0 +1,404 @@
+false value client-le?
+
+false value client-r11-r12-ok?
+
+3084 constant xclient-save-len
+xclient-save-len buffer: xclient-save
+
+variable ints-overridden?
+variable ath-overridden?
+variable saved-ints-overridden?
+variable saved-ath-overridden?
+variable saved-alarms?
+
+internals int>of-ctx @ constant of-context
+internals int>client-ctx @ constant client-context
+B0 constant context-size
+
+0 (field) context>gprs
+80 (field) context>lr
+84 (field) context>ctr
+88 (field) context>cr
+8C (field) context>xer
+90 (field) context>sprg0
+94 (field) context>sprg1
+98 (field) context>sprg2
+9C (field) context>sprg3
+A0 (field) context>srr0
+A4 (field) context>srr1
+A8 (field) context>msr
+
+108 constant fregs-size
+fregs-size buffer: fregs
+
+: get-fregs		fregs dup fregs@ ;		( -- buf )
+: set-fregs		fregs fregs! ;			( -- )
+
+: :r			create , treg set-type does> check-valid @ client-context + @ ;
+: :fp			create not , treg set-type does> @ not get-fregs + 2@ ;
+: :fp32			create not , treg set-type does> @ not get-fregs + @ ;
+
+00 :r %r0
+04 :r %r1
+08 :r %r2
+0C :r %r3
+10 :r %r4
+14 :r %r5
+18 :r %r6
+1C :r %r7
+20 :r %r8
+24 :r %r9
+28 :r %r10
+2C :r %r11
+30 :r %r12
+34 :r %r13
+38 :r %r14
+3C :r %r15
+40 :r %r16
+44 :r %r17
+48 :r %r18
+4C :r %r19
+50 :r %r20
+54 :r %r21
+58 :r %r22
+5C :r %r23
+60 :r %r24
+64 :r %r25
+68 :r %r26
+6C :r %r27
+70 :r %r28
+74 :r %r29
+78 :r %r30
+7C :r %r31
+80 :r %lr
+84 :r %ctr
+88 :r %cr
+8C :r %xer
+90 :r %sprg0
+94 :r %sprg1
+98 :r %sprg2
+9C :r %sprg3
+A0 :r %srr0
+A4 :r %srr1
+A8 :r %msr
+alias %pc %srr0
+
+00 :fp %f0
+08 :fp %f1
+10 :fp %f2
+18 :fp %f3
+20 :fp %f4
+28 :fp %f5
+30 :fp %f6
+38 :fp %f7
+40 :fp %f8
+48 :fp %f9
+50 :fp %f10
+58 :fp %f11
+60 :fp %f12
+68 :fp %f13
+70 :fp %f14
+78 :fp %f15
+80 :fp %f16
+88 :fp %f17
+90 :fp %f18
+98 :fp %f19
+A0 :fp %f20
+A8 :fp %f21
+B0 :fp %f22
+B8 :fp %f23
+C0 :fp %f24
+C8 :fp %f25
+D0 :fp %f26
+D8 :fp %f27
+E0 :fp %f28
+E8 :fp %f29
+F0 :fp %f30
+F8 :fp %f31
+100 :fp32 %fpscr
+
+
+: ((ppc-register-to))		( val d [32-bit regs] | val.hi val.lo d [floating-pt regs] -- )
+	>body @ dup 0< if
+		not dup 100 = get-fregs swap
+		if
+			+ !
+		else
+			+ 2!
+		then
+		set-fregs
+	else
+		check-valid client-context + !
+	then
+;
+' ((ppc-register-to)) to (register-to)
+
+: .reg-name		( addr len reg# -- )
+	base @ >r decimal (u.) r> base !
+	2 over - spaces 2swap type type ." : "
+;
+
+: .gpr-name	" %r" rot .reg-name ;			( reg# -- )
+: .fpr-name	" %f" rot .reg-name ;			( reg# -- )
+
+: .context		( ctx -- )
+	20 0 ?do
+		cr
+		4 spaces i .gpr-name dup @ .cell cell+
+		3 spaces i 1+ .gpr-name dup @ .cell cell+
+		3 spaces i 2+ .gpr-name dup @ .cell cell+
+		3 spaces i 3 + .gpr-name dup @ .cell cell+
+	4 +loop
+	cr cr
+	."     %lr: " dup @ .cell cell+
+	."    %ctr: " dup @ .cell cell+
+	."     %cr: " dup @ .cell cell+
+	."    %xer: " dup @ .cell cell+ cr
+	."  %sprg0: " dup @ .cell cell+
+	."  %sprg1: " dup @ .cell cell+
+	."  %sprg2: " dup @ .cell cell+
+	."  %sprg3: " dup @ .cell cell+ cr
+	."   %srr0: " dup @ .cell cell+
+	."   %srr1: " dup @ .cell cell+
+	."    %msr: " dup @ .cell cell+ cr
+
+	client-context = client-r11-r12-ok? 0= and if
+		."  ** note: r11 and r12 have been overwritten" cr
+	then
+;
+
+: .registers		( -- )
+	check-valid
+	cr cr ." Client State"
+	client-context .context
+;
+
+: .of-registers		( -- )
+	check-valid
+	cr cr ." OF Context"
+	of-context .context
+;
+
+: .fregisters		( -- )
+	cr ." Current Floating-Point Registers"
+	get-fregs 20 0 ?do
+		cr
+		4 spaces i .fpr-name dup 2@ .cell .cell 2 na+
+		4 spaces i 1+ .fpr-name dup 2@ .cell .cell 2 na+
+	2 +loop
+	cr
+	2 spaces ." %fpscr: " @ .cell cr
+;
+
+
+
+: ppc-in-callback?	internals int>bits @ 4 and 0<> ;	( -- flag )
+: ppc-in-callback!	0<> 4 and internals int>bits tuck @ 4 not and or swap ! ;	( flag -- )
+
+: ppc-in-client?	internals int>bits @ 2 and 0<> ;	( -- flag )
+
+: ppc-in-client!		( flag -- )
+	0<> 2 and internals int>bits tuck @ 2 not and or swap !
+;
+' ppc-in-client! to in-client!
+
+
+\ Takes control of address translation
+: install-ath			( -- )
+	ath-overridden? @ not if
+		ath-overridden? on
+		xclient-save (install-ath)
+		real-mode? not if				\ Update the internal translation table
+			" force-xlat>" mmu-ih $call-method
+		then
+	then
+;
+
+\ Restores the client's address translation setup, as saved by install-ath
+: restore-ath			( -- )
+	ath-overridden? @ if
+		xclient-save real-mode? (restore-ath)
+		ath-overridden? off
+	then
+;
+
+\ Takes control of the interrupt vectors
+: install-ints			( -- )
+	ints-overridden? @ not if
+		ints-overridden? on
+		xclient-save real-mode? (install-ints)
+	then
+;
+
+\ Restores the client's interrupt vectors, as saved by install-ints
+: restore-ints			( -- )
+	ints-overridden? @ if
+		xclient-save (restore-ints)
+		ints-overridden? off
+	then
+;
+
+0 value client-stack
+
+: (ppc-init-program)	( entrypoint args alen -- successful? )
+	state-valid on								\ so we can access registers
+	
+	client-context context-size cell- erase		\ the last word of the context is a pointer
+	to %r7 to %r6
+	client-stack dup 0= if						\  to the other context and should not cleared.
+		drop 8010 alloc-mem F + F not and		\ once allocated, the client stack is not freed
+		7FC0 + dup to client-stack
+	then
+	to %r1
+	msr@ FFFF7FFF and 3000 or
+	real-mode? if FFFFFFCF and then
+	to %msr
+	sprg0 spr@ to %sprg0
+	sprg1 spr@ to %sprg1
+	sprg2 spr@ to %sprg2
+	sprg3 spr@ to %sprg3
+	
+	state-valid off
+	((init-prgm))
+;
+' (ppc-init-program) to (init-program)
+
+
+\ Prepares for entering the client interface
+: prepare-ci-entry				( -- )
+	real-mode? if
+		false alarms!
+		install-ints install-ath
+	then
+;
+
+\ Prepares to leave the client interface
+: prepare-ci-return			( -- )
+	false alarms!
+
+	restore-ath				\ translation now disabled
+	restore-ints
+;
+
+: ((ppc-$callback))		( cistruct cbrout -- flag )
+	alarms? saved-alarms? !
+	ath-overridden? @ saved-ath-overridden? !
+	ints-overridden? @ saved-ints-overridden? !
+	restore-ath restore-ints
+
+	swap to %r3
+	true ppc-in-callback!
+	((($callback)))
+	false ppc-in-callback!
+	%r3 or 0<>
+	
+	ath-overridden? off ints-overridden? off
+	
+	saved-ints-overridden? @ if install-ints saved-ints-overridden? off then
+	saved-ath-overridden? @ if install-ath saved-ath-overridden? off then
+	saved-alarms? @ alarms!
+;
+' ((ppc-$callback)) to (($callback))
+
+: (ppc-ci-handler)				( -- )
+	false to client-r11-r12-ok?
+	prepare-ci-entry
+	%r3 ci-handler to %r3
+	prepare-ci-return
+	(ci-return)
+;
+' (ppc-ci-handler) internals int>f-ci-handler !
+
+: (ppc-go)						( -- flag )
+	false alarms!
+	ath-overridden? off
+	ints-overridden? off
+	saved-ath-overridden? off
+	saved-ints-overridden? off
+	saved-alarms? off
+	real-mode? ((go))
+	cr \ ." returned!"
+;
+' (ppc-go) to (go)
+
+: (ppc-go-from-enter)			( low-level-result -- flag )
+	to %r3
+	prepare-ci-return
+	(ci-return)				\ should not return
+	false
+;
+' (ppc-go-from-enter) to (go-from-enter)
+
+: (ppc-go-from-exception)		( -- flag )
+	." GO-FROM-EXCEPTION not implemented"
+	true
+;
+' (ppc-go-from-exception) to (go-from-exception)
+
+: (ppc-client-exception)		( -- )
+	false in-client!
+
+	-80000000
+	ppc-in-callback?
+	dup not to client-r11-r12-ok?
+	false ppc-in-callback!
+	prepare-ci-entry
+	if
+		\ Restore what we had taken control of before the callback
+		saved-ints-overridden? @ if install-ints saved-ints-overridden? off then
+		saved-ath-overridden? @ if install-ath saved-ath-overridden? off then
+		
+		callback-exception
+	else
+		stop throw	
+	then
+;
+' (ppc-client-exception) internals int>f-cx-handler !
+
+: (ppc-stop)				( -- )
+	install-ints
+	install-ath
+	false to translate-callback?
+	false to alloc-callback?
+	(stop)
+;
+
+' (ppc-stop) to stop
+
+: release-client-mem		( -- )
+	" release-client-mem" " /packages/file-loader" $call-static
+;
+
+: ((ppc-enter))				( -- )
+	real-mode? not if
+		false alarms!			\ do this first, before installing ints and ath
+		install-ints
+		translate-callback? not vm-mod-ath? and if
+			install-ath			\ sets the "client has mapping callback"
+								\  flag in internals to false. This is fine because 
+		then					\  we obviously don't have a callback.
+	then						\ In fact, this is exactly what we want.
+	((enter-action))
+;
+
+' ((ppc-enter)) to ((enter))
+
+: ((ppc-ci-set-callback))	( newfunc -- oldfunc )
+	((ci-set-callback))
+	real-mode? if
+		A 0 real_base dup 4 " alloc-real-mem" ['] $callback catch if
+			3drop 2drop 2drop
+		else
+			x*drop true to alloc-callback?
+		then
+	else
+		1000 virt_base 2 " translate" ['] $callback catch if
+			3drop 2drop
+		else
+			x*drop true to translate-callback?
+			(client-maps)
+		then
+	then
+;
+
+' ((ppc-ci-set-callback)) to (ci-set-callback)

@@ -1,0 +1,158 @@
+" deblocker" device-name
+
+: read-blocks		" read-blocks" $call-parent ;
+: write-blocks		" write-blocks" $call-parent ;
+
+0 instance value /block
+0 instance value max-xfer-blocks
+0 instance value max-xfer
+0 instance value db-buffer
+0 0 instance 2value pos
+false value write?
+
+: get-params		( -- )
+	/block 0= if
+		" block-size" $call-parent to /block
+		" max-transfer" $call-parent /block / dup to max-xfer-blocks
+		/block * to max-xfer
+		/block alloc-mem to db-buffer
+	then
+;
+
+: pos>block#		( low high -- block# )
+	/block um/mod nip
+;
+
+: pos>block-offset	( low high -- n )
+	/block um/mod drop
+;
+
+: read-buffer		( block# -- successful? )
+	db-buffer swap 1 read-blocks 1 =
+;
+
+: write-buffer		( block# -- successful? )
+	db-buffer swap 1 write-blocks 1 =
+;
+
+: ((r/w-after))		( addr block# #blocks actual-#blocks -- addr' block#' r/w-all? )
+	>r
+	r@ = -rot
+	r@ + -rot
+	r> /block * + -rot
+;
+
+: ((read))			( addr block# #blocks -- addr' block#' read-all? )
+	3dup read-blocks ((r/w-after))
+;
+
+: ((write))			( addr block# #blocks -- addr' block#' read-all? )
+	3dup write-blocks ((r/w-after))
+;
+
+: (r/w)				( addr len last-block first-block -- actual )
+	{ addr len last-block first-block }
+	
+	pos pos>block-offset ?dup if
+		first-block read-buffer not if
+			drop 0 exit
+		then
+		addr swap >r dup db-buffer r@ +
+		write? not if swap then
+		/block r> - dup >r move
+		r> + first-block 1+
+		write? if
+			first-block write-buffer not if
+				2drop 0 exit
+			then
+		then
+	else
+		addr first-block
+	then							( cur-addr cur-block# )
+	
+	begin
+		dup max-xfer-blocks + last-block u<=
+	while
+		max-xfer-blocks write? if ((write)) else ((read)) then
+		not if
+			drop addr - exit
+		then
+	repeat
+	
+	last-block over - ?dup if
+		write? if ((write)) else ((read)) then
+		not if
+			drop addr - exit
+		then
+	then		
+	drop							( cur-addr )
+	
+	pos len m+ pos>block-offset ?dup if
+		last-block read-buffer not if
+			drop addr - exit
+		then
+		>r dup db-buffer
+		write? not if swap then
+		r> move
+		write? if
+			last-block write-buffer not if
+				addr - exit
+			then
+		then
+	then							( cur-addr )
+	drop len
+;
+
+: read				( addr len -- actual )
+	get-params
+	dup >r pos r> m+ pos>block#
+	pos pos>block#
+	2dup = if
+		drop read-buffer if
+			pos pos>block-offset db-buffer +
+			-rot dup >r move r>
+		else
+			2drop 0
+		then
+	else
+		false to write?
+		(r/w)
+	then
+;
+
+: write				( addr len -- actual )
+	get-params
+	dup >r pos r> m+ pos>block#
+	pos pos>block#
+	2dup = if
+		drop dup >r read-buffer not if
+			2drop 0 exit
+		then
+		pos pos>block-offset db-buffer +
+		swap dup >r move r>
+		r> write-buffer not if
+			drop 0
+		then
+	else
+		true to write?
+		(r/w)
+	then
+;
+
+
+: seek				( pos.lo pos.hi -- status )
+	get-params
+	to pos 0
+;
+
+: flush		;		( -- )
+
+: open
+	true
+;
+
+: close
+	/block if
+		db-buffer /block free-mem
+	then
+;

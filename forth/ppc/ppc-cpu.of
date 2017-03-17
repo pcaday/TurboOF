@@ -1,0 +1,538 @@
+new-child
+
+" cpus" device-name
+
+1 encode-int "#address-cells" property
+0 encode-int "#size-cells" property
+
+: open		true ;
+: close		;
+: decode-unit	1 parse-nhex ;
+: encode-unit	(u.h) ;
+
+
+new-child
+
+: "l2-cache"		s" l2-cache" ;
+: "i-cache-size"	s" i-cache-size" ;
+: "i-cache-sets"	s" i-cache-sets" ;
+: "d-cache-size"	s" d-cache-size" ;
+: "d-cache-sets"	s" d-cache-sets" ;
+
+: make-system-cache		( primary? -- )
+	drop
+;
+
+: make-l2-cache			( primary? -- )
+	pvr@ 10 >> case
+		8 of
+			l2cr spr@ 1C >> 3 and
+			dup 0= if drop exit then
+			>r 2000 20000 r> <<
+		endof		( l2-sets l2-size )
+		7000 of
+			2000 80000
+		endof
+		7002 of
+			4000 100000
+		endof
+		2drop exit
+	endcase
+	new-child
+	"l2-cache" device-name
+	s" cache" device-type
+	0 0 s" cache-unified" property
+	encode-int 2dup "i-cache-size" property "d-cache-size" property
+	encode-int 2dup "i-cache-sets" property "d-cache-sets" property
+	make-system-cache
+	active-package
+	child-end
+	encode-int "l2-cache" property
+;
+
+: make-cpu-properties		( primary? -- )
+	pvr@ 10 >> case
+		1 of
+			80 8000 0 80 100 0 s" PowerPC,601" 4
+		endof	( l1-sets l1-size l1-split tlb-sets tlb-size tlb-split n-addr n-len features )
+		3 of
+			40 2000 1 40 80 1 s" PowerPC,603" 17
+		endof
+		4 of
+			80 4000 1 80 100 1 s" PowerPC,604" 34
+		endof
+		6 of
+			80 4000 1 40 80 1 s" PowerPC,603e" 17
+		endof
+		7 of
+			80 4000 1 40 80 1 s" PowerPC,603ev" 17
+		endof
+		8 of
+			>r r@ 80 8000 1 80 100 1 r> 83000 > if
+				s" PowerPC,755"
+			else
+				s" PowerPC,750"
+			then 36
+		endof
+		9 of
+			100 8000 1 80 100 1 s" PowerPC,604e" 34
+		endof
+		A of
+			100 8000 1 80 100 1 s" PowerPC,604ev" 34
+		endof
+		7000 of
+			80 8000 1 80 100 1 s" PowerPC,750FX" 36
+		endof
+		7002 of
+			80 8000 1 80 100 1 s" PowerPC,750GX" 36
+		endof
+		8081 of
+			80 4000 1 40 80 1 s" PowerPC,G2" 17
+		endof
+		8082 of
+			80 4000 1 40 80 1 s" PowerPC,G2_LE" 17
+		endof
+		>r 0 0 1 0 0 1 s" PowerPC,???" 0 r>
+	endcase >r
+	device-name
+	pvr@ encode-int s" cpu-version" property
+	s" cpu" device-type
+	cpufreq encode-int "clock-frequency" property
+	3B9ACA00 tbfreq 601? iff encode-int s" timebase-frequency" property
+	r@ 1 and if 0 0 s" 603-translation" property then
+	r@ 2 and if 0 0 s" 603-power-management" property then
+	r@ 4 and if 0 0 s" external-control" property then
+	r@ 8 and if 0 0 s" general-purpose" property then
+	r@ 10 and if 0 0 s" graphics" property then
+	r@ 20 and if 0 0 s" performance-monitor" property then
+	r> 40 and if 0 0 s" tlbia" property then
+	20 encode-int s" reservation-granule-size" property
+	>r
+	2dup encode-int s" tlb-size" property
+	encode-int s" tlb-sets" property
+	r> if
+		0 0 s" tlb-split" property
+		2/ encode-int 2dup s" d-tlb-size" property s" i-tlb-size" property
+		2/ encode-int 2dup s" d-tlb-sets" property s" i-tlb-sets" property
+	else
+		2drop
+	then
+	>r
+	encode-int 2dup "i-cache-size" property "d-cache-size" property
+	encode-int 2dup "i-cache-sets" property "d-cache-sets" property
+	20 encode-int 2dup s" i-cache-block-size" property s" d-cache-block-size" property
+	r> 0= if
+		0 0 s" cache-unified" property
+		40 encode-int 2dup s" i-cache-line-size" property
+		s" d-cache-line-size" property
+	then
+	make-l2-cache
+;
+
+true make-cpu-properties
+0 encode-int "reg" property
+
+: clone-cpu		( ipi/reg -- )
+	push-package
+	[ " /cpus" find-phandle ] literal to active-package
+	new-child
+	false make-cpu-properties
+	encode-int "reg" property
+	child-end
+	pop-package
+;
+
+( ======== ppc-oea-mmu.of ======== )
+
+0 value mmuprop-base
+200 value mmuprop-size
+variable mp>avail
+variable mp>trans
+
+align here to mmuprop-base mmuprop-size allot
+
+1000 encode-int s" page-size" property
+
+1 1 >>r constant half
+
+here 0 encode-int half encode-int encode+
+half encode-int encode+ half encode-int encode+ s" existing" property
+
+
+/n 2* constant /avail
+/n 4 * constant /trans
+
+mmuprop-base /avail 2* move
+
+/avail 2* mp>avail !
+mp>trans off
+
+
+
+: check-cb-#rets	( n -- )
+	<> if -90 throw then
+;
+
+0 value '$callback
+: do-$callback		( argn...arg1 nargs addr len -- retn...ret2 )
+	'$callback dup 0= if
+		drop " ' $callback" eval dup to '$callback
+	then
+	execute
+;
+
+: #mp>avail	mp>avail @ /avail / ;		( -- n )
+: #mp>trans	mp>trans @ /trans / ;		( -- n )
+
+: avail-swap			( -- )
+	le? if mmuprop-base mp>avail @ lbflips then
+;
+
+: avail-e>i			( -- )
+	avail-swap
+	0 mmuprop-base cell+ #mp>avail 0 ?do
+		>r r@ @ dup r@ cell- @ + r@ ! + r> 2 na+
+	loop drop
+	mp>avail @ [ 4 cells ] literal = if
+		0= if
+			mmuprop-base [ 2 cells ] literal erase
+			[ 2 cells ] literal mp>avail !
+		then
+	else
+		drop
+	then
+;
+
+: avail-i>e			( -- )
+	mmuprop-base cell+ #mp>avail 0 ?do
+		>r r@ @ r@ cell- @ - r@ ! r> 2 na+
+	loop drop
+	mp>avail @ [ 2 cells ] literal = if
+		mmuprop-base cell+ @ 0= if
+			half dup dup mmuprop-base >r r@ cell+ ! r@ 2 na+ ! r> 3 na+ !
+			[ 4 cells ] literal mp>avail !
+		then
+	then
+	avail-swap
+;
+
+: mmuprop-enlarge		( -- )
+	align here mmuprop-size 2* tuck allot
+	mmuprop-base over mp>avail @ move
+	2dup + mp>trans @ - mmuprop-base mmuprop-size + mp>trans @ - swap mp>trans @ move
+	to mmuprop-base
+	to mmuprop-size
+;
+
+: mmuprop-sync			( -- )
+	mmuprop-base mp>avail @ s" available" [ active-package ] literal (property)
+	mmuprop-base mmuprop-size + mp>trans @ >r r@ - r> s" translations" [ active-package ] literal (property)
+;
+
+: avail-insert		( addr -- addr' )
+	mmuprop-base -
+	mp>avail @ dup mp>trans @ + mmuprop-size >= if
+		mmuprop-enlarge
+	then
+	dup /avail + mp>avail !
+	over - >r
+	mmuprop-base + dup dup 2 na+ r> move
+;
+
+: avail-remove		( addr -- )
+	>r r@ /avail + r> mp>avail @ >r r@ over mmuprop-base - - move
+	r> /avail - mp>avail !
+;
+
+: avail+			( begin end addr -- )
+	cell- >r over r@ @ = r@ mmuprop-base > and
+	over r@ cell+ @ = r@ cell+ mmuprop-base - mp>avail @ < and
+	if
+		if
+			r@ 2 na+ @ r@ ! r> cell+ avail-remove 2drop
+		else
+			drop r> cell+ !
+		then
+	else
+		if
+			r> ! drop
+		else
+			r> cell+ avail-insert >r r@ cell+ ! r> !
+		then
+	then
+;
+
+: avail-			( begin end addr -- )
+	>r over r@ @ =
+	over r@ cell+ @ =
+	if
+		if
+			r> avail-remove 2drop
+		else
+			drop r> cell+ !
+		then
+	else
+		if
+			r> ! drop
+		else
+			r> avail-insert >r r@ 2 na+ ! r> cell+ !
+		then
+	then
+;
+
+: (claim)[client]		( base size -- )
+	{ addr size }
+	addr default-mode size addr size + 1- addr
+	4 " alloc-real-mem" do-$callback 1 check-cb-#rets
+	addr <> abort" CLAIM failed"
+;
+
+: (claim)			( begin end -- base )
+	>r dup r>
+	mmuprop-base #mp>avail 0 ?do
+		>r 2dup 1- r@ cell+ @ 1- u<=			\ 1- before compare for ranges extending to the end of virtual memory
+		swap r@ @ u>=
+		and if
+			r> avail- unloop exit
+		then
+		r> 2 na+
+	loop
+	avail-i>e -84 throw
+;
+
+: (claim-aligned)	( size align -- base )
+	1- mmuprop-base #mp>avail 0 ?do
+		>r 2dup r@ @ over + swap not and
+		tuck + 1- r@ cell+ @ 1- u<=
+		if
+			nip swap >r dup dup r> + r> avail- unloop exit
+		then
+		drop r>
+		2 na+
+	loop
+	avail-i>e -84 throw
+;
+
+: claim				( [virt] size align -- base )
+	over >r r@ 0= if -84 throw then
+	avail-e>i
+	>r r@ if
+		r> (claim-aligned)
+	else
+		rdrop over + 2dup u> over 0<> and if avail-i>e -84 throw then
+		(claim)
+	then
+	avail-i>e
+	mmuprop-sync
+	alloc-callback? if
+		dup r@ (claim)[client]
+	then
+	rdrop
+;
+
+: release			( virt size -- )
+	dup 0= if 2drop exit then
+	avail-e>i		\ align-mem-region 
+	over +
+	mmuprop-base #mp>avail 0 ?do
+		over 1- over @ u< ?leave
+		2 na+
+	loop
+	>r r@ mmuprop-base > if
+		over r@ cell- @ 1- u<= if avail-i>e -85 throw then 
+	then r>
+	avail+ avail-i>e
+	mmuprop-sync
+;
+
+: trans-swap			( -- )
+	le? if mp>trans @ mmuprop-base mmuprop-size + over - swap lbflips then
+;
+
+: trans-insert		( addr -- addr' )
+	mmuprop-size tuck >r - mmuprop-base +
+	mp>trans @ tuck mp>avail @ + r> >= if
+		mmuprop-enlarge
+	then
+	>r dup r> - >r
+	dup /trans + mp>trans !
+	mmuprop-base mmuprop-size + swap - dup /trans - tuck r@ /trans + move
+	r> +
+;
+
+: trans-remove		( addr -- )
+	>r mmuprop-base mmuprop-size + mp>trans @ - dup /trans + over r> swap - move
+	mp>trans @ /trans - mp>trans !
+;
+
+: (find-translation)		( virt size -- begin-margin end-margin addr )
+	mmuprop-base mmuprop-size + #mp>trans 0 ?do
+		/trans - >r
+		over r@ @ u>= if
+			swap r@ @ -
+			2dup + r@ cell+ @ u<= if
+				tuck +
+				r@ cell+ @ swap -
+				r> unloop exit
+			then
+			leave
+		then
+		r>
+	loop
+	-87 throw
+;
+
+: translation+		( virt size phys mode -- )
+	>r >r over 2dup +
+	mmuprop-base mmuprop-size + mp>trans @ >r r@ - r> /trans / 0
+	?do
+		>r dup 1- r@ @ u< if r> leave then r> /trans +
+	loop
+	>r r@ mmuprop-base mmuprop-size + mp>trans @ - u> if
+		over r@ -3 na+ @ r@ -4 na+ @ + u< if -86 throw then
+	then r>
+	chunk trans-insert r> r> rot >r r@ 3 na+ ! r@ 2 na+ ! r@ cell+ ! r> !
+;
+
+: translation-		( virt size -- )
+	2dup (find-translation) >r dup if
+		over if	( virt size begin-m end-m )
+			r> trans-insert >r
+			r@ 5 na+ ! r@ cell+ !
+			+ dup r@ 4 na+ @ - r@ 6 na+ tuck @ + swap ! r> 4 na+ !
+		else
+			r@ cell+ ! drop + dup r@ @ - r@ 2 na+ tuck @ + swap ! r> !
+		then
+	else
+		drop dup
+		if
+			r> cell+ !
+		else
+			r> trans-remove drop 
+		then 2drop
+	then
+;
+
+: map-pages		( virt-aligned phys-aligned #pages resolved-mode -- )
+	translate-callback? if
+		2drop 2drop
+	else
+		>r >r >r >r pt-mask pagetab r> r> r> r> swap 0
+		?do
+			map-page
+			>r 1000 + >r 1000 + r> r>
+		loop
+		3drop 2drop
+	then
+;
+
+: unmap-pages		( virt-aligned #pages -- )
+	translate-callback? if
+		2drop
+	else
+		>r >r pt-mask pagetab r> r> 0
+		?do
+			unmap-page
+			1000 +
+		loop
+		3drop
+	then
+;
+
+: resolve-mode		( phys virt size mode -- phys virt size resolved-mode )
+	dup -1 = if
+		drop 2 pick default-mode
+	then 7B and
+;
+
+
+: translate[client]	( virt -- false | phys mode true )
+	1 " translate" do-$callback dup 3 = if
+		2drop swap true
+	else
+		1 check-cb-#rets
+		drop false
+	then
+;
+
+: map[client]		( phys virt size mode -- actual-mode )
+	2 pick >r
+	swap 2swap swap
+	4 " map" do-$callback 1 check-cb-#rets
+	abort" MAP callback failed"
+	r> translate[client] not abort" TRANSLATE callback failed after MAP" nip
+;
+
+: unmap[client]		( virt size -- )
+	swap 2 " unmap" do-$callback 0 check-cb-#rets
+;
+
+
+: force-xlat>	mmuprop-base mmuprop-size + mp>trans @ >r r@ - r> (xlat>) ;	( -- )
+: xlat>		translate-callback? not if force-xlat> then ;			( -- )
+
+: map				( phys virt size mode -- )
+	over 0= if
+		2drop 2drop exit
+	then
+	
+	translate-callback? if 4dup map[client] nip then	
+	
+	trans-swap resolve-mode
+	>r 3dup rot r@ translation+ mmuprop-sync
+	>r dup FFF and r> + >r FFFFF000 and swap FFFFF000 and r> FFF + C >> r>
+	map-pages xlat> trans-swap
+;
+
+: unmap				( virt size -- )
+	dup 0= if
+		2drop exit
+	then
+
+	translate-callback? if 2dup unmap[client] then
+	
+	trans-swap 2dup translation- mmuprop-sync
+	over FFF and + >r FFFFF000 and r> FFF + C >>
+	unmap-pages xlat> trans-swap
+;
+
+: modify			( virt size mode -- )
+	trans-swap >r 2dup (find-translation)
+	nip 2 na+ @ + -rot 2dup 
+	trans-swap unmap r> map
+;
+
+: translate			( virt -- false | phys mode true )
+	translate-callback? if translate[client] exit then
+
+	trans-swap 1 ['] (find-translation) catch if
+		2drop false
+	else
+		nip tuck 2 na+ @ + swap 3 na+ @ true
+	then
+;
+
+virt_base virt_size 2dup 0 claim drop
+trans-swap real_base 12 translation+ trans-swap
+
+mmuprop-sync
+
+: pre-claim		( virt size -- )
+	0 ' claim catch if
+		2drop
+	then
+	drop
+;
+
+real-mode? if
+	0 4000 pre-claim
+	FFF00000 4000 pre-claim
+then
+
+my-self 0 to my-self
+active-package invoke is-mmu
+to my-self
+
+child-end
+
+child-end

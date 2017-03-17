@@ -1,0 +1,27 @@
+dev /options/defaults
+
+create default-nvram
+0 l,
+80 w,
+8 w,
+-1 l,
+-1 l,
+-1 l,
+-1 l,
+800000 l,
+d# 24 l,
+d# 80 l,
+d# 0 l,
+here " ata0/@0:6" encode-string 2drop 10 + dp!
+here " hd:6" encode-string 2drop 40 + dp!
+here " " encode-string 2drop 20 + dp!
+here " " encode-string 2drop 40 + dp!
+here " " encode-string 2drop 20 + dp!
+here " keyboard" encode-string 2drop 20 + dp!
+here " screen" encode-string 2drop 20 + dp!
+here " boot -v" encode-string 2drop 40 + dp!
+" " encode-string 2drop
+
+default-nvram load-options
+
+unselect-dev

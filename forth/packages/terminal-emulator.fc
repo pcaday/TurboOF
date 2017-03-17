@@ -1,0 +1,170 @@
+fcode-version2
+hex
+
+external
+
+" terminal-emulator" device-name
+0 0 " iso6429-1983-colors" property
+
+variable escape
+C buffer: esc-buffer
+variable esc-color-phase
+
+F value default-foreground
+0 value default-background
+
+: init
+	0 to line#
+	0 to column#
+	0 to inverse?
+	0 to inverse-screen?
+	default-foreground to foreground-color
+	default-background to background-color
+	escape off
+	esc-color-phase off
+	erase-screen
+	reset-screen
+;
+
+: 2d#		( addr len -- n )
+	dup if
+		>r dup c@ [char] 0 -
+		r> 1 > if
+			>r char+ c@ [char] 0 - r> A * + exit
+		then
+	then
+	nip
+;
+
+: (esc>#)	esc-buffer 2+ escape @ 2- ;
+: esc>#		(esc>#) 2d# ;
+: 2esc>#	(esc>#) [char] ; left-parse-string 2d# >r 2d# r> swap ;	( -- n1 n2 )
+: cup		2esc># #columns 1- min to column# #lines 1- min to line# ;
+: (invert)	inverse? not to inverse? foreground-color background-color
+		to foreground-color to background-color ;
+: sgr-color
+	esc-color-phase @ dup if
+		1- 3 << rot or swap !
+	else
+		drop >r r@ @ -8 and or r> !
+	then
+	esc-color-phase off
+;
+
+: sgr
+	esc># case
+		0 of
+			inverse-screen? if invert-screen false to inverse-screen? then
+			false to inverse? F to foreground-color 0 to background-color
+		endof
+		1 of 1 esc-color-phase ! endof
+		2 of 2 esc-color-phase ! endof
+		7 of inverse? not if (invert) then endof
+		1B of inverse? if (invert) then endof
+		dup 1E - dup 8 u< if
+			foreground-color >body sgr-color
+		else 
+			A - dup 8 u< if
+				background-color >body sgr-color
+			else
+				drop
+			then
+		then
+	endcase
+;
+
+: lf
+	line# 1+ dup #lines = if
+		0 to line# 1 delete-lines
+		1-
+	then to line#
+;
+
+: write-char	( char -- )
+	escape @ if
+		dup 40 < over 5B = or if
+			escape @ >r r@ B > if
+				r> 2drop escape off toggle-cursor
+			else
+				esc-buffer r@ + c! r> char+ escape !
+			then
+		else
+			esc-buffer char+ c@ [char] [ = if
+				case
+					[char] @ of esc># #columns column# - min insert-characters endof
+					[char] A of line# esc># - 0 max to line# endof	
+					[char] B of line# esc># + #lines min to line# endof	
+					[char] C of column# esc># + #columns min to column# endof	
+					[char] D of column# esc># - 0 max to column# endof	
+					[char] E of line# dup 1+ #lines < - to line# endof
+					[char] H of cup endof
+					[char] J of #columns column# - delete-characters
+						#lines line# - delete-lines endof
+					[char] K of #columns column# - delete-characters endof
+					[char] L of esc># #lines 1- min insert-lines endof
+					[char] M of esc># #lines 1- min delete-lines endof
+					[char] P of esc># #columns column# - min delete-characters endof
+					[char] f of cup endof
+					[char] m of sgr endof
+					[char] p of inverse-screen? if invert-screen (invert)
+						false to inverse-screen? then endof
+					[char] q of inverse-screen? not if invert-screen (invert)
+						true to inverse-screen? then endof
+					[char] s of reset-screen endof
+				endcase
+			else
+				drop
+			then
+			toggle-cursor
+			escape off
+		then
+	else
+		toggle-cursor
+		case
+			control G of blink-screen endof
+			control H of
+				column# if
+					column# 1- to column#
+					1 delete-characters
+				then
+			endof
+			control I of
+				column# 8 + -8 and #columns min to column#
+			endof
+			control J of
+				lf
+			endof
+			control K of
+				line# if
+					line# 1- to line#
+				then
+			endof
+			control L of
+				erase-screen
+				0 to line#
+				0 to column#
+			endof
+			control M of
+				0 to column#
+			endof
+			control [ of
+				1 escape ! exit
+			endof
+			column# 1+ dup #columns < if
+				over draw-character to column# 
+			else
+				drop lf 0 to column# dup draw-character
+				1 to column#
+			then
+		endcase
+		toggle-cursor
+	then
+;
+
+: write
+	tuck bounds ?do
+		i c@ write-char
+	loop
+;
+
+fcode-end

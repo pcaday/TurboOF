@@ -1,0 +1,47 @@
+0 value tbfreq
+
+: 601?			( -- 601? )
+	pvr@ 10 >> 1 =
+;
+
+
+601? [if]
+
+: rtcl@		rtcl spr@ ;
+: get-msecs	rtcl@ F4240 / ;
+: get-usecs	rtcl@ 3E8 / ;
+
+: do-cpufreq-601	( cycles -- ns )
+	rtcl@ >r cycles rtcl@ r> -
+;
+
+: get-cpufreq-601
+	10 do-cpufreq-601 drop
+	A0000000 3B9AC 
+	200000 do-cpufreq-601
+	100000 do-cpufreq-601 -
+	um/mod nip to cpufreq
+;
+
+get-cpufreq-601
+
+[else]
+
+: get-msecs	tb@ 3E8 tbfreq um*/ drop ;
+: get-usecs	tb@ F4240 tbfreq um*/ drop ;
+
+: tb>bus	tbfreq 2 << to busfreq ;
+
+[then]
+
+: ms
+	1+ >r get-msecs begin
+		get-msecs over - r@ >
+	until drop rdrop
+;
+
+: us
+	1+ >r get-usecs begin
+		get-usecs over - r@ >
+	until drop rdrop
+;

@@ -1,0 +1,466 @@
+variable fpos
+0 value fstride
+false value fcode-done?
+false value offset-16?
+defer fcode-c@
+create fcode#-tab 1000 cells allot
+create fcimm-tab 80 cells allot
+variable fsave fsave off
+variable flast
+
+: fc-in		fpos @ dup fcode-c@ >r fstride + fpos ! r> ;	( -- code-byte )
+: fcode#-in	fc-in dup 1- F u< if 8 << fc-in or then ;	( -- tok# )
+: fcode#-xt!	cells fcode#-tab + ! ;		( xt tok# -- )
+: fcode#>xt	cells fcode#-tab + @ ;		( tok# -- xt )
+: foff-in	fc-in offset-16? if 8 << fc-in or w>n else b>n then ;	( -- n )
+: fskip		begin dup while fc-in drop 1- repeat drop ;
+
+: end0		true to fcode-done? ;
+alias end1 end0
+
+: offset16	true to offset-16? ;
+
+: ferror	end0 ." undefined FCode#" ;
+
+-1 constant (-1) ;
+0 constant (0) ;
+1 constant (1) ;
+2 constant (2) ;
+3 constant (3) ;
+
+: b(lit)	fc-in 8 << fc-in or 8 << fc-in or 8 << fc-in or
+		state @ if (literal) then ;
+
+: (b("))
+	fc-in dup "buf-len min >r r@ - get-"buf tuck
+	r@ bounds ?do
+		fc-in i c!
+	loop
+	fskip r> 
+;
+
+: b(')		fcode#-in fcode#>xt state @ if (literal) then ;
+: b(")		(b(")) state @ if (sliteral) then ;
+
+: (bbranch-)	( -- dest )
+	-1 >r begin
+		dup -1 <>
+	while
+		>r
+	repeat
+	drop
+	begin
+		r> tuck -1 =
+	until
+	nip
+;
+
+: bbranch
+	foff-in dup 0> if
+		state @ if
+			drop branch, here swap
+		else
+			1- offset-16? + fskip
+		then
+	else
+		drop branch, here (bbranch-) (>resolve) ?temp;
+	then
+;
+
+: b?branch
+	foff-in dup 0> if
+		state @ if
+			drop f-branch, here
+		else
+			>r if rdrop else r> 1- offset-16? + dup u. fskip then
+		then
+	else
+		drop f-branch, here (bbranch-) (>resolve) ?temp;
+	then
+;
+
+: b(>resolve)	state @ if postpone then then ;
+
+: b(cf>)	state @ 0= if temp: then ;
+: b(<mark)	b(cf>) postpone begin -1 ;
+: b(case)	b(cf>) postpone case ;
+: b(do)		foff-in drop b(cf>) postpone do ;
+: b(?do)	foff-in drop b(cf>) postpone ?do ;
+: b(loop)	foff-in drop postpone loop ;
+: b(+loop)	foff-in drop postpone +loop ;
+: b(of)		foff-in drop postpone of ;
+: b(endof)	foff-in drop postpone endof ;
+
+: b(to)
+	fcode#-in fcode#>xt
+	xt>d 0= if -8B throw then
+	((to))
+	state @ if
+		swap (literal) compile,
+	else
+		execute
+	then
+;
+
+: b([$call-parent])
+	fcode#-in 12 <> throw (b("))
+	my-parent dup if
+		i>pack @ find-method
+	then
+	0= if -81 throw then
+	state @ if
+		compile,
+	else
+		execute
+	then
+;
+
+: b(",)
+	fcode#-in 12 <> throw
+	here fc-in tuck bounds ?do
+		fc-in i c!
+	loop
+	allot
+;
+
+: b(find-word)
+	fcode#-in 12 <> throw
+	get-"buf fc-in 2dup dup "buf-len > throw
+	bounds ?do
+		fc-in i c!
+	loop
+	('
+;
+
+: b(eval)
+	b(find-word) execute
+;
+
+: b([compile])
+	b(find-word) compile,
+;
+
+2variable next-name
+variable unnamed?
+
+: (parse-word-fcode)
+	next-name 2@ dup if
+		0 0 next-name 2!
+	else
+		2drop (parse-word)
+	then
+;
+
+: (new-def-fcode)
+	over -1 = dup unnamed? ! if
+		here last !
+		0 c, c, align 0 , 0 , here 3 cells + , 0 , 0 ,
+		2drop
+	else
+		(new-def-of)
+	then
+;
+
+: (new-token)	align here fcode#-in cells fcode#-tab + dup flast ! ! ;
+: fixup-token	( unnamed? @ not if ) flast @ dup @ d>interp @ swap ! ( then ) ;
+
+: new-token	(new-token) -1 -1 next-name 2! ;
+: external-token (b(")) (new-token) next-name 2! ;
+: named-token	(b(")) (new-token) fcode-debug? 0= if 2drop -1 -1 then
+		next-name 2! ;
+
+: b(:)		] align next-name 2@
+		0 new-def prologue, 0 0 next-name 2! fixup-token ;
+: b(value)	value fixup-token ;
+: b(variable)	variable fixup-token ;
+: b(constant)	constant fixup-token ;
+: b(create)	create fixup-token ;
+: b(defer)	defer fixup-token ;
+: b(buffer:)	buffer: fixup-token ;
+: b(field)	field fixup-token ;
+
+: fheader		( -- )
+	fc-in dup 8 - dup if
+		." warning: FCode too "
+		0> if s" new (" else s" old (" then
+		type 2 0u.r [char] ) emit
+	else 2drop then
+	6 fskip
+;
+
+: stride	fpos @ fstride + fpos ! ;				( -- )
+
+: version2	to fstride offset16 stride fheader ;			( stride -- )
+: version1	1 to fstride false to offset-16? stride fheader ;	( -- )
+: start0	0 version2 ;
+: start1	1 version2 ;
+: start2	2 version2 ;
+: start4	4 version2 ;
+
+: token-imm?		( tok# -- immediate? )
+	>r r@ 5 >> cells fcimm-tab + @
+	r> 1F and << 0<
+;
+
+: get-token
+	>r r@ fcode#>xt
+	r> token-imm?	
+;
+
+: set-token
+	>r [ 1 1 >>r ] literal r@ 1F and >>
+	r@ 5 >> cells fcimm-tab + >r r@ @
+	over not and >r and r> or r> !
+	r> fcode#-xt!
+;
+
+alias suspend-fcode noop
+
+: push-fcode-state			( -- )
+	fsave @ if
+		[ 848 cells ] literal alloc-mem		( savearea cur-ptr )
+		dup fcode#-tab [ 800 cells ] literal + over [ 800 cells ] literal move
+		[ 800 cells ] literal +
+		fcimm-tab [ 40 cells ] literal + over [ 40 cells ] literal move
+		[ 40 cells ] literal +
+		fpos @ over ! cell+
+		state @ over ! cell+
+		fstride over ! cell+
+		offset-16? over ! cell+
+		['] fcode-c@ behavior over ! cell+
+		['] parse-word behavior over ! cell+
+		['] new-def behavior over ! cell+
+		fsave @ swap !
+	else
+		-1 
+	then
+	fsave !
+;
+
+: pop-fcode-state			( -- )
+	fsave @ 1+ 2 u< if
+		0 ([)
+		restore-defers
+	else
+		fsave @ dup				( savearea cur-ptr )
+		dup fcode#-tab [ 800 cells ] literal + [ 800 cells ] literal move
+		[ 800 cells ] literal +
+		dup fcimm-tab [ 40 cells ] literal + [ 40 cells ] literal move
+		[ 40 cells ] literal +
+		dup @ fpos ! cell+
+		dup @ state ! cell+
+		dup @ to fstride cell+
+		dup @ to offset-16? cell+
+		dup @ to fcode-c@ cell+
+		dup @ to parse-word cell+
+		dup @ to new-def cell+
+		false to fcode-done?
+		@ >r [ 848 cells ] literal free-mem r>
+	then
+	fsave !
+;
+
+: (byte-load)
+	fcode#-in dup FC and F0 = over FD = or not if
+		." no start FCode!" exit
+	then fcode#>xt execute
+	begin
+		fcode#-in dup fcode#>xt state @ if
+			swap token-imm? if
+				execute
+			else
+				compile,
+			then
+		else
+			nip execute
+		then
+		fcode-done?
+	until
+;
+
+: byte-load
+	push-fcode-state
+	dup 1 = if drop 230 fcode#>xt then to fcode-c@
+	fpos !
+	0 to fstride
+	([)
+	false to fcode-done?
+	['] (parse-word-fcode) to parse-word
+	['] (new-def-fcode) to new-def
+	['] ferror
+	fcode#-tab [ 800 cells ] literal + [ 800 cells ] literal bounds
+	?do
+		dup i !
+	/n +loop drop
+	['] (byte-load) catch
+	pop-fcode-state
+	throw
+;
+
+: inline-byte-load	( addr -- )
+	['] c@ byte-load
+;
+
+
+:noname		fcode#-tab 241 0 ?do (') over ! cell+ loop
+		['] ferror swap 1000 241 ?do 2dup ! cell+ loop 2drop
+		fcode#-tab 600 cells + C 0 ?do (') over ! cell+ loop drop ; execute
+
+end0		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+b(lit)		b(')		b(")		bbranch
+b?branch	b(loop)		b(+loop)	b(do)
+b(?do)		i		j		leave
+b(of)		execute		+		-
+*		/		mod		and
+or		xor		invert		<<
+>>		>>a		/mod		u/mod
+negate		abs		min		max
+>r		r>		r@		exit
+0=		0<>		0<		0<=
+0>		0>=		<		>
+=		<>		u>		u<=
+u<		u>=		>=		<=
+between		within		drop		dup
+over		swap		rot		-rot
+tuck		nip		pick		roll
+?dup		depth		2drop		2dup
+2over		2swap		2rot		2/
+u2/		2*		/c		/w
+/l		/n		ca+		wa+
+la+		na+		char+		wa1+
+la1+		cell+		chars		/w*
+/l*		cells		on		off
++!		@		l@		w@
+<w@		c@		!		l!
+w!		c!		2@		2!
+move		fill		comp		noop
+lwsplit		wljoin		lbsplit		bljoin
+wbflip		upc		lcc		pack
+count		body>		>body		fcode-revision
+span		unloop		expect		alloc-mem
+free-mem	key?		key		emit
+type		(cr		cr		#out
+#line		hold		<#		u#>
+sign		u#		u#s		u.
+u.r		.		.r		.s
+base		ferror		$number		digit
+(-1)		(0)		(1)		(2)
+(3)		bl		bs		bell
+bounds		here		aligned		wbsplit
+bwjoin		b(<mark)	b(>resolve)	ferror
+ferror		new-token	named-token	b(:)
+b(value)	b(variable)	b(constant)	b(create)
+b(defer)	b(buffer:)	b(field)	ferror
+instance	ferror		;		b(to)
+b(case)		endcase		b(endof)	#
+#s		#>		external-token	$find
+offset16	evaluate	ferror		ferror
+c,		w,		l,		,
+um*		um/mod		ferror		ferror
+d+		d-		get-token	set-token
+state		compile,	behavior	ferror
+ferror		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+start0		start1		start2		start4
+ferror		ferror		ferror		ferror
+ferror		ferror		ferror		ferror
+ferror		version1	ferror		end1
+
+ferror			ferror			my-address		my-space
+ferror			free-virtual		ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+property		encode-int		encode+			encode-phys
+encode-string		encode-bytes		reg			intr
+driver			model			device-type		parse-2int
+is-install		is-remove		is-selftest		new-device
+diagnostic-mode?	ferror			memory-test-suite	ferror
+mask			get-msecs		ms			finish-device
+decode-phys		ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+map-low			sbus-intr>cpu		ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+#lines			#columns		line#			column#
+inverse?		inverse-screen?		ferror			draw-character
+reset-screen		toggle-cursor		erase-screen		blink-screen
+invert-screen		insert-characters	delete-characters	insert-lines
+delete-lines		draw-logo		frame-buffer-adr	screen-height
+screen-width		window-top		window-left		ferror
+foreground-color	background-color	default-font		set-font
+char-height		char-width		>font			fontbytes
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+fb8-draw-character	fb8-reset-screen	fb8-toggle-cursor	fb8-erase-screen
+fb8-blink-screen	fb8-invert-screen	fb8-insert-characters	fb8-delete-characters
+fb8-insert-lines	fb8-delete-lines	fb8-draw-logo		fb8-install
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+mac-address		ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+
+ferror			device-name		my-args			my-self
+find-package		open-package		close-package		find-method
+call-package		$call-parent		my-parent		ihandle>phandle
+ferror			my-unit			$call-method		$open-package
+ferror			ferror			ferror			alarm
+(is-user-word)		suspend-fcode		abort			catch
+throw			user-abort		get-my-property		decode-int
+decode-string		get-inherited-property	delete-property 	get-package-property
+cpeek			wpeek			lpeek			cpoke
+wpoke			lpoke			lwflip			lbflip
+lbflips			ferror			ferror			ferror
+ferror			ferror			ferror			ferror
+xb@			xb!			xw@			xw!
+xl@			xl!			wbflips			lwflips
+ferror			ferror			ferror			child
+peer			next-property		byte-load		set-args
+left-parse-string
+
+us		get-usecs	tbfreq		cpufreq
+align		tb@		cycles		b([$call-parent])
+parse-ints	b(",)		b(eval)		b([compile])
+
+fcimm-tab
+8000FF98 over !
+5 na+ 6000 over !
+cell+ 3E280000 over !
+cell+ 1 over !
+29 na+ 01300000 swap !

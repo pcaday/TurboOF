@@ -1,0 +1,84 @@
+0 value last-alarm-scan
+4 3 * cells value alarms-size
+alarms-size alloc-mem value alarms
+
+defer alarms?
+defer alarms!
+
+' false to alarms?
+' drop to alarms!
+
+
+alarms off
+
+: user-abort
+	r> ['] abort >r >r
+;
+
+: expand-alarms		( -- )
+	alarms alarms-size dup 2* resize-mem dup to alarms
+	alarms-size + off
+	alarms-size 2* to alarms-size
+;
+
+: delete-alarm		( addr -- )
+	dup 3 na+ tuck >r
+	alarms alarms-size + r> 2 na+ - move
+;
+
+: alarm				( xt n -- )
+	my-self
+	{ xt n ih }
+	alarms begin
+		dup @ dup
+	while
+		xt = if
+			dup cell+ @ ih = if
+				n dup if
+					swap 2 na+ !
+				else
+					drop delete-alarm
+				then
+				exit
+			then
+		then
+		3 na+
+	repeat
+	drop
+	n 0= if
+		drop exit
+	then
+	xt over !
+	cell+ ih over !
+	cell+ n over !
+	cell+ dup off
+	alarms alarms-size + u>= if
+		expand-alarms
+	then
+;
+
+: alarm-scan		( -- )
+	push-instance
+	get-msecs >r
+	
+	last-alarm-scan
+	alarms begin
+		dup @
+	while
+		2dup 2 na+ @ r@ over u/mod drop
+		>r u/mod drop r> u> if
+			( run the alarm )
+			dup cell+ @ to my-self
+			dup @ execute
+			( --------- )
+		then
+		3 na+
+	repeat
+	2drop
+	
+	r> to last-alarm-scan
+	pop-instance
+;
+
+: <alarms-off		alarms? false alarms! ;		( -- alarms-were-enabled? )
+: alarms>			alarms! ;					( alarms-were-enabled? -- )

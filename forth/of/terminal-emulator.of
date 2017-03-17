@@ -1,0 +1,66 @@
+defer draw-character
+defer draw-logo
+defer insert-characters
+defer delete-characters
+defer insert-lines
+defer delete-lines
+defer erase-screen
+defer invert-screen
+defer blink-screen
+defer reset-screen
+defer toggle-cursor
+
+0 value line#
+0 value column#
+0 value inverse?
+0 value inverse-screen?
+
+0 value foreground-color
+0 value background-color
+
+
+: lines/page	#lines 4 - ;
+
+: get-te-xt	( addr len -- xt )
+	" /packages/terminal-emulator" find-phandle find-method 0= abort" missing method"
+;
+
+: is-open
+	"my-methods" $create 0 , 0 ,
+	"open" $create , does>
+	@ execute dup if
+		" init" get-te-xt execute
+		"my-methods" eval
+		push-package 0 to active-package
+		['] draw-logo behavior over !
+		['] reset-screen behavior swap cell+ !
+		pop-package
+	then
+;
+
+: is-write
+	"write" 2dup get-te-xt (is-user-word)
+;
+
+: is-draw-logo
+	" draw-logo" $create "my-methods" eval ,
+	does> @ @ execute
+;
+
+: is-restore
+	" restore" $create "my-methods" eval cell+ ,
+	does> @ @ execute
+;
+
+: is-install
+	" iso8859-1" encode-string " character-set" property
+	is-open is-write is-draw-logo is-restore
+;
+
+: is-remove
+	"close" rot (is-user-word)
+;
+
+: is-selftest
+	" selftest" rot (is-user-word)
+;

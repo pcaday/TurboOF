@@ -1,0 +1,201 @@
+
+dev via-pmu
+
+0 value saved-via1-data-b
+0 value saved-via1-ddir-b
+0 value saved-via1-data-a
+0 value saved-via1-ddir-a
+0 value saved-via1-ien
+0 value saved-via1-actl
+0 value saved-via1-pctl
+
+0 value saved-via2-data-b
+0 value saved-via2-ddir-b
+0 value saved-via2-data-a
+0 value saved-via2-ddir-a
+0 value saved-via2-ien
+0 value saved-via2-actl
+0 value saved-via2-pctl
+
+: save-via		( -- )
+	reg-base xb@ to saved-via1-data-b
+	reg-base 0400 + xb@ to saved-via1-ddir-b
+	reg-base 1E00 + xb@ to saved-via1-data-a
+	reg-base 0600 + xb@ to saved-via1-ddir-a
+	reg-base 1C00 + xb@ to saved-via1-ien
+	reg-base 1600 + xb@ to saved-via1-actl
+	reg-base 1800 + xb@ to saved-via1-pctl
+
+	reg-base 2000 + xb@ to saved-via2-data-b
+	reg-base 2400 + xb@ to saved-via2-ddir-b
+	reg-base 3E00 + xb@ to saved-via2-data-a
+	reg-base 2600 + xb@ to saved-via2-ddir-a
+	reg-base 3C00 + xb@ to saved-via2-ien
+	reg-base 3600 + xb@ to saved-via2-actl
+	reg-base 3800 + xb@ to saved-via2-pctl	
+;
+
+: restore-via		( -- )
+	saved-via1-data-b reg-base xb!
+	saved-via1-ddir-b reg-base 0400 + xb!
+	saved-via1-data-a reg-base 1E00 + xb!
+	saved-via1-ddir-a reg-base 0600 + xb!
+	saved-via1-ien 80 or reg-base 1C00 + xb!
+	saved-via1-actl reg-base 1600 + xb!
+	saved-via1-pctl reg-base 1800 + xb!
+	reg-base 1200 + xb@ reg-base 1200 + xb!	\ restart timer?...
+	reg-base 1A00 + xb@ reg-base 1A00 + xb!
+
+	saved-via2-data-b reg-base 2000 + xb!
+	saved-via2-ddir-b reg-base 2400 + xb!
+	saved-via2-data-a reg-base 3E00 + xb!
+	saved-via2-ddir-a reg-base 2600 + xb!
+	saved-via2-ien 80 or reg-base 3C00 + xb!
+	saved-via2-actl reg-base 3600 + xb!
+	saved-via2-pctl reg-base 3800 + xb!
+;
+
+: lcd-wait		( -- )
+	50F20014 xb@ 2 or 50F20014 xb!
+	50F20014 begin dup xb@ 2 and until drop
+;
+
+: lcd-via-wait		( -- )
+	d# 50000 0 ?do
+		reg-base xb@ drop
+	loop
+;
+
+40 buffer: lcd-save
+
+: lcd-off		( -- )
+	lcd-wait
+	" "(1101)" write drop
+	lcd-via-wait
+	0 50F20046 xb!
+	7F 50F20042 xb! 7F 50F20042 xb! 7F 50F20042 xb!
+	50F20014 xb@ 4 not and 50F20014 xb!
+	lcd-via-wait
+	lcd-wait
+	50F20008 xb@ 8 not and 50F20008 xb!
+	50F20000 lcd-save 40 move
+;
+
+create of-clut
+00 c, 00 c, 00 c,
+00 c, 00 c, AA c,
+00 c, AA c, 00 c, 
+00 c, AA c, AA c,
+AA c, 00 c, 00 c,
+AA c, 00 c, AA c,
+AA c, AA c, 00 c, 
+AA c, AA c, AA c,
+55 c, 55 c, 55 c,
+55 c, 55 c, FF c,
+55 c, FF c, 55 c,
+55 c, FF c, FF c,
+FF c, 55 c, 55 c,
+FF c, 55 c, FF c,
+FF c, FF c, 55 c,
+FF c, FF c, FF c,
+
+: set-clut		( -- )
+	0 50F20040 xb!
+	30 0 ?do
+		of-clut i + c@ 50F20042 xb!
+	loop
+;
+
+: lcd-restore		( -- )
+	0 50F20044 xb!
+	38 6 ?do
+		i lcd-save + c@ i 50F20000 + xb!
+	2 +loop
+	lcd-save 3C + c@ 50F2003C xb!
+	set-clut
+	FF 50F20044 xb!
+	50F20014 xb@ 4 or 50F20014 xb!
+	50F20008 xb@ 8 or 50F20008 xb!
+	lcd-via-wait
+	" "(1181)" write drop
+;
+
+: sleep			( -- )
+	false alarms!
+	lcd-off
+	save-via
+	38 50F2A000 xl!
+	50F80007 xb@ FD and 50F80007 xb!
+	" "(7F)MATT" write drop
+	1 discard
+	1 ['] set-603-power catch drop	\ will get a system reset exception upon wake
+	false alarms!
+	50F80007 xb@ 2 or 50F80007 xb!
+	0 50F2A000 xl!
+	restore-via
+	lcd-restore
+	page
+;
+
+unselect-dev
+
+( ==== helpful in debugging sleep ==== )
+
+50F14000 constant singer-base
+
+defer saw
+: (saw)		( -- )
+	100 0 ?do
+		i 101 * dup singer-base 1000 + xw! singer-base 1800 + xw!
+	loop
+;
+' (saw) to saw
+
+: (saw2)		( -- )
+	200 0 ?do
+		i 2/ 101 * dup singer-base 1000 + xw! singer-base 1800 + xw!
+	loop
+;
+
+defer wait-done
+:noname			( -- )
+	begin
+		singer-base 804 + xb@ 8 and
+	until
+;
+to wait-done
+
+: make-noise	( -- )
+	d# 1 ms
+	[ 50F96000 xb@ ] literal 50F96000 xb!
+	[ singer-base F44 + xl@ ] literal singer-base F44 + xl!
+	FFC singer-base F4A + xw!
+	21 singer-base F40 + xb!
+	80 singer-base 803 + xb!
+	00 singer-base 803 + xb!
+	0 singer-base 1000 + xw!
+	0 singer-base 1800 + xw!
+	400 singer-base F48 + xw!
+	1 singer-base F09 + xb!
+	1 singer-base F29 + xb!
+	0 singer-base 80A + xb!
+	1 singer-base 801 + xb!
+	0 singer-base F48 + xw!
+	8 singer-base F4A + xw!
+	80 singer-base 806 + xb!
+	d# 250 ms
+	10 0 ?do
+		saw wait-done
+	loop
+;
+
+: noisy-exception 	( -- )
+	['] (saw) to saw
+	make-noise
+	[ ' exception-catch behavior compile, ]
+;
+
+: noisy-exceptions	( -- )
+	['] noisy-exception to exception-catch
+;
+

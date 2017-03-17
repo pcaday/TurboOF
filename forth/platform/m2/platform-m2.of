@@ -1,0 +1,153 @@
+unselect-dev
+: "AAPL,interrupts"		" AAPL,interrupts" ;
+
+dev /
+	" AAPL,1400" encode-string " model" property
+	" AAPL,1400" encode-string
+	" AAPL,M2" encode-string encode+
+	" MacRISCNubus" encode-string encode+
+	" Power Macintosh" encode-string encode+ " compatible" property
+	
+	dev packages
+		new-device
+			terminal-emulator inline-byte-load
+		finish-device
+		new-device
+			ata-disk inline-byte-load
+		finish-device
+		new-device
+			atapi-disk inline-byte-load
+		finish-device
+	dev ..
+	
+	new-device
+		ppc-memory inline-byte-load
+	finish-device
+	
+	my-self
+	" /memory" open-dev is-memory
+	to my-self
+	
+	new-device
+		rom-m2 inline-byte-load
+	finish-device
+	
+	0 0 " 50F00000" " /" begin-package
+		pbx-whitney inline-byte-load
+	
+		new-device
+			0 0 " 0" set-args
+			via-pmu-m2 inline-byte-load
+			d# 10 encode-int d# 12 encode-int encode+ "AAPL,interrupts" property
+	
+			new-device
+				pmu-adb inline-byte-load
+			finish-device
+	
+			new-child
+				" battery" 2dup device-name device-type
+			child-end
+		finish-device
+	
+		new-device
+			0 0 " 4000" set-args
+			mac-scc inline-byte-load
+			d# 4 encode-int "AAPL,interrupts" property
+		finish-device
+		
+		new-device
+			mac-5830 inline-byte-load
+			d# 19 encode-int d# 16 encode-int encode+ "AAPL,interrupts" property
+		finish-device
+	
+		new-device
+			0 0 " 14000" set-args
+			singer2 inline-byte-load
+			d# 20 encode-int "AAPL,interrupts" property
+		finish-device
+		
+		new-device
+			0 0 " 16000" set-args
+			swim2 inline-byte-load
+			d# 21 encode-int "AAPL,interrupts" property
+		finish-device
+		
+		new-device
+			0 0 " 1A000" set-args
+			baboon inline-byte-load
+			d# 27 encode-int "AAPL,interrupts" property
+			
+			new-device
+				0 0 " 0" set-args
+				baboon-ata inline-byte-load
+			finish-device
+	
+			new-device
+				0 0 " 80" set-args
+				baboon-ata inline-byte-load
+			finish-device
+			
+			new-device
+				0 0 " D0" set-args
+				baboon-media-bay inline-byte-load
+			finish-device
+		finish-device
+	
+		new-device
+			0 0 " 1C000" set-args
+			trex inline-byte-load
+			d# 24 encode-int "AAPL,interrupts" property
+		finish-device
+		
+		new-device
+			0 0 " 20000" set-args
+			ecsc inline-byte-load
+			d# 25 encode-int "AAPL,interrupts" property
+		finish-device
+	
+		new-device
+			0 0 " 2A000" set-args
+			icr inline-byte-load
+		finish-device
+		
+		new-device
+			" memory-controller" device-name
+			8.0000 40 reg
+		finish-device
+	end-package
+
+: probe-keystone
+	FEEF.E000 cpeek if
+		drop
+		new-device
+			keystone inline-byte-load
+			d# 29 encode-int "AAPL,interrupts" property
+		finish-device
+	then
+;
+
+probe-keystone
+
+devalias mac-io		/pbx-whitney
+devalias lcd		/pbx-whitney/ecsc
+devalias ttya		/pbx-whitney/scc/ch-a
+devalias via-pmu	/pbx-whitney/via-pmu
+devalias keyboard	/pbx-whitney/via-pmu/adb/@2
+devalias mouse		/pbx-whitney/via-pmu/adb/@3
+devalias ata0		/pbx-whitney/baboon/ata@0
+devalias ata1		/pbx-whitney/baboon/ata@80
+devalias hd			/pbx-whitney/baboon/ata@0/@0
+devalias cd			/pbx-whitney/baboon/ata@80/@0
+devalias mb			/pbx-whitney/baboon/media-bay
+devalias fd			/pbx-whitney/swim2
+devalias scsi		/pbx-whitney/5830
+
+dev via-pmu
+' reset-all
+' shut-down
+unselect-dev
+
+" shut-down" rot (is-user-word)
+" reset-all" rot (is-user-word)
+
+: probe-all	;

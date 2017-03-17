@@ -1,0 +1,40 @@
+dev /openprom
+	" Open Firmware, 3.0" encode-string " model" property
+unselect-dev
+
+defer spin
+
+: filll			( addr len long -- )
+	>r 2dup 3 - bounds r@ -rot ?do
+		dup i l!
+	4 +loop
+	drop
+	>r r@ 3 not and + r> 3 and dup if
+		r@ [ bits/cell 8 - ] literal >>r 2 pick c!
+		dup 1 u> if
+			r@ [ bits/cell 10 - ] literal >>r 2 pick 1+ c!
+			dup 2 u> if
+				r@ [ bits/cell 18 - ] literal >>r 2 pick 2+ c!
+			then
+		then
+	then
+	rdrop 2drop
+;
+
+
+: device-end	( -- )
+	idata-open? @ if
+		finish-device
+	else
+		device-end
+	then
+;
+
+: dev
+	parse-word dup if
+		find-device
+	else 2drop then
+;
+
+:ev-str boot-args
+0 0 " boot-args" /options (property)

@@ -1,0 +1,247 @@
+dev /
+
+(new-child) to /options
+( /options: populated with the NVRAM, system-specific. nvram.of is responsible for this. )
+
+" options" device-name
+
+new-child
+" defaults" device-name
+
+active-package to /defaults
+
+child-end
+unselect-dev
+
+" true" encode-string 2constant (true-prop)
+" false" encode-string 2constant (false-prop)
+
+
+: ev-int<->		( addr len arg false -- propaddr proplen | propaddr proplen arg true -- addr len )
+	nip if
+		decode-int chunk (u.)
+	else
+		parse-int encode-int
+	then
+;
+
+: ev-bool<->
+	nip if
+		decode-string 2nip
+	else
+		2dup " true" $= if
+			2drop " true"
+		else
+			" false" $= not abort" expected 'true' or 'false'"
+			" false"
+		then
+		encode-string
+	then
+;
+
+: ev-str<->
+	nip if
+		decode-string 2nip
+	else
+		encode-string
+	then
+;
+
+: ev-bytes<->
+	nip if
+		<#
+		dup 10 > if [char] . hold [char] . hold [char] . hold then	
+		10 min >r r@ + r> 0 ?do
+			1- dup c@ u# u# drop
+		loop drop
+		(#>)
+	else
+		encode-bytes
+	then
+;
+
+: ev-sec<->
+	nip if
+		decode-string 2nip
+	else
+		2dup " full" $= if
+			2drop " full"
+		else
+			2dup " command" $= if
+				2drop " command"
+			else
+				" none" $= not abort" expected 'none', 'full', or 'command'"
+				" none"
+			then
+		then
+		encode-string
+	then
+;
+
+: ev-script<->
+	nip if
+		nip 1 u> if "  *** use nvshow to view" else 0 0 then
+	else
+		encode-string
+	then
+;
+
+: ev-user<->
+	if
+		true ev-bytes<->
+	else
+		2dup u> abort" environment variable length exceeded"
+		false ev-bytes<->
+	then
+;
+
+: get-option		( addr len -- paddr plen )
+	/options get-package-property abort" enviroment variable not present"
+;
+
+: (:ev)		parse-word encode-bytes 2dup $create , , ;
+
+: :ev-bool	(:ev) ['] ev-bool<-> , does> 2@ get-option drop c@ [char] t = ;
+: :ev-int	(:ev) ['] ev-int<-> , does> 2@ get-option decode-int chunk ;
+: :ev-str	(:ev) ['] ev-str<-> , does> 2@ get-option decode-string 2nip ;
+: :ev-bytes	(:ev) ['] ev-bytes<-> , does> 2@ get-option ;
+: :ev-sec	(:ev) ['] ev-sec<-> , 
+			does> 2@ get-option drop c@ case [char] n of 0 endof [char] c of 1 endof 2 swap endcase ;
+: :ev-script
+	(:ev) ['] ev-script<-> , does> 2@ get-option decode-string 2nip ;
+
+
+defer (nodefault-bytes)		( maxlen -- addr len [current setting from NVRAM])
+
+: nodefault-bytes		( maxlen name-addr name-len -- )
+	2dup /options get-package-property not abort" environment variable already defined"
+	rot >r
+	2dup r@ (nodefault-bytes) encode-bytes 2swap /options (property)
+	2dup push-package unselect-dev $create pop-package
+	, , ['] ev-user<-> , r> ,
+	does> 2@ get-option
+;
+
+: ev-kind				( addr len -- arg xt )
+	$find if
+		>body >r r@ 3 na+ @ r> 2 na+ @
+	else
+		true abort" unknown environment variable"
+	then
+;
+
+20 constant printenv-tab
+
+: ((printenv))			( paddr plen addr len -- )
+	2dup type printenv-tab over - 0 max spaces
+	ev-kind true swap execute type
+;
+
+: (printenv)			( addr len -- )
+	cr ."  Current value:" cr
+	2dup get-option 2over ((printenv))
+	cr ."  Default value:"
+	2dup /defaults get-package-property if
+		2drop ."  <none>"
+	else
+		cr 2swap ((printenv))
+	then
+	cr
+;
+
+: (printenv-all)		( phandle -- )
+	n>prop @
+	begin
+		p>next @ dup
+	while
+		cr >r
+		r@ p>pdata @ r@ p>plen @
+		r@ p>name r@ p>nlen @ ((printenv))
+		r>
+	repeat
+	drop
+;
+
+: printenv
+	parse-line dup if
+		(printenv)
+	else
+		2drop /options (printenv-all)
+	then
+;
+
+: print-defaults
+	/defaults (printenv-all)
+;
+
+: $setenv		( data-addr data-len name-addr name-len -- )
+	2tuck ev-kind false swap execute 2swap /options (property)
+;
+
+: setenv
+	parse-word
+	parse-line dup 0= abort" new value for environment variable missing"
+	2swap $setenv
+;
+
+:ev-bool	auto-boot?
+:ev-str		boot-command
+:ev-str		boot-device
+:ev-str		boot-file
+:ev-bool	diag-switch?
+:ev-str		diag-device
+:ev-str		diag-file
+
+:ev-bool	fcode-debug?
+
+:ev-str		input-device
+:ev-str		output-device
+
+:ev-int		screen-#columns
+:ev-int		screen-#rows
+
+:ev-script	nvramrc
+:ev-bool	use-nvramrc?
+
+:ev-str		oem-banner
+:ev-bool	oem-banner?
+:ev-bytes	oem-logo
+:ev-bool	oem-logo?
+
+:ev-sec		security-mode
+:ev-int		security-#badlogins
+:ev-str		security-password
+
+:ev-int		selftest-#megs
+
+alias diagnostic-mode? diag-switch?
+
+: ($set-default)	( paddr plen addr len -- )
+	2dup " oem-logo" $= if 2drop 2drop exit then
+	2dup " security-mode" $= if 2drop 2drop exit then
+	2dup " security-password" $= if 2drop 2drop exit then
+	2dup " security-#badlogins" $= if 2drop 2drop exit then
+	/options (property)
+;
+
+: $set-default		( addr len -- )
+	2dup /defaults get-package-property abort" no default value"
+	2swap ($set-default)
+;
+
+: set-default
+	parse-word $set-default
+;
+
+: set-defaults
+	/defaults n>prop @
+	begin
+		p>next @ dup
+	while
+		>r
+		r@ p>pdata @ r@ p>plen @
+		r@ p>name r@ p>nlen @ ($set-default)
+		r>
+	repeat
+	drop
+;

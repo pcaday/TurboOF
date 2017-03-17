@@ -1,0 +1,8 @@
+1 pagetab-size << 1- constant pt-mask
+
+1000 constant page-size
+page-size negate constant page-mask
+
+: default-mode		( phys -- mode )
+	0 in-ram? if A else 6A then		( RAM: wimGxPp, I/O: WImGxPp )
+;

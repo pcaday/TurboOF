@@ -1,0 +1,174 @@
+\ fcode-version2
+\ hex
+
+\ headers
+
+" disk-label" device-name
+
+200 constant mac-block-size
+0 instance value dl-buffer
+0 instance value this-boot-size
+0 instance value this-boot-blk#
+0 0 instance 2value file-path
+0 0 instance 2value (offset)
+0 instance value (offset?)
+
+struct
+	/w field blk0>sig
+	/w field blk0>blk-size
+drop
+
+struct
+	/w field part>sig
+wa1+
+	/l field part>#pm-blks
+	/l field part>start
+	/l field part>len
+	20 field part>name
+	20 field part>type
+drop 5C
+	/l field part>boot-blk#
+	/l field part>boot-size
+drop
+
+: do-read			( addr len -- )
+	tuck " read" $call-parent <> abort" can't READ device"
+;
+
+: do-seek			( d -- )
+	" seek" $call-parent 1 u> abort" SEEK failed"
+;
+
+
+: read-block			( addr block# -- )
+	mac-block-size tuck um* do-seek do-read
+;
+
+
+: valid-pm-sig?			( -- valid? )
+	dl-buffer part>sig w@-be dup 504D = swap 5453 = or
+;
+
+: read-partitions		( -- 0 [unreadable] | #partitions )
+	dl-buffer 0 read-block
+
+	dl-buffer blk0>sig w@-be 4552 <> if 0 exit then
+	
+	dl-buffer 1 read-block			( read block 1 to get #partitions )
+	valid-pm-sig? not if
+		0 exit
+	then
+	
+	dl-buffer part>#pm-blks l@-be
+;
+
+: get-offset			( -- )
+	(offset?) if
+		exit
+	then
+	
+	my-args [char] , left-parse-string
+	2swap to file-path
+	
+	dup 0= if				\ No partition given; attempt to boot from beginning of disk
+		2drop
+		0 0 to (offset)
+		true to (offset?)
+		0 to this-boot-blk#
+		10.0000 to this-boot-size
+		exit
+	then
+	
+	read-partitions dup 0= abort" unrecognized disklabel" -rot 
+		( part-addr part-len #parts )
+	base @ >r decimal $number r> base !
+	not if
+		tuck 1- u> if
+			dl-buffer swap read-block
+			valid-pm-sig? if
+				dl-buffer part>start l@-be mac-block-size um* to (offset)
+				true to (offset?)
+				
+				dl-buffer part>boot-blk# l@-be
+				to this-boot-blk#
+				
+				dl-buffer part>boot-size l@-be
+				dup 0= if
+					drop 10.0000	( if size = 0, read 1M )
+				then
+				to this-boot-size exit
+			then
+		then
+	then
+	true abort" bad partition or bad partition #"
+;
+
+: open-hfs-files	( -- ihandle )
+	file-path " hfs-files" $open-package dup 0= abort" could not read filesystem"
+;
+
+\ external
+
+: open
+	mac-block-size alloc-mem to dl-buffer
+	true
+;
+
+: close
+	dl-buffer ?dup if
+		mac-block-size free-mem
+	then
+;
+
+: offset			( d.rel -- d.abs )
+	get-offset (offset) d+
+;
+
+: load				( addr -- len )
+	file-path nip if
+		open-hfs-files >r " load" r@ $call-method r> close-dev
+	else
+		2drop
+		this-boot-blk# dup 0= abort" no boot code on this partition"
+		
+		mac-block-size um* d+ do-seek
+		this-boot-size tuck " read" $call-parent
+		tuck <> abort" could not READ boot-file"
+	then
+;
+
+: ls-parts			( -- )
+	read-partitions ?dup 0= if
+		." unrecognized disklabel" exit
+	then
+
+	base @ >r decimal
+	
+	cr
+	cr ." Apple partition map, #partitions: " dup u.
+	cr
+	
+	1+ 1 ?do
+		cr space i <# u# u# u#> type ." : "
+		dl-buffer i read-block
+		valid-pm-sig? if
+			[char] [ emit dl-buffer part>start l@-be dup (u.) type [char] : emit
+			dl-buffer part>len l@-be + 1- (u.) type [char] ] emit
+			9 emit
+			dl-buffer part>type 20 c>f$-max type space space
+			[char] " emit
+			dl-buffer part>name 20 c>f$-max type
+			[char] " emit
+		else
+			." invalid signature"
+		then
+	loop
+	
+	r> base !
+;
+
+: dir				( addr len -- )
+	open-hfs-files >r " dir" r@ ['] $call-method catch r> close-dev throw
+;
+
+\ fcode-end

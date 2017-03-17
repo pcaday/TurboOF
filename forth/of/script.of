@@ -1,0 +1,317 @@
+0 value nvbuf
+-1 value nvbuf-len
+variable >nvbuf-end
+
+: dashes			( n -- )
+	0 ?do [char] - emit loop
+;
+
+: check-nvbuf	nvbuf-len -1 = abort" no nvedit temporary buffer" ;
+: check-~nvbuf	nvbuf-len -1 <> abort" script currently being edited" ;
+: nvfree		nvbuf nvbuf-len free-mem -1 to nvbuf-len ;
+
+: nvquit
+	check-nvbuf
+	cr ." Discard changes to the script? [y/n]"
+	key lcc [char] y = if
+		nvfree
+	else
+		."  cancelling"
+	then
+;
+
+: (nvshow)
+	cr 
+	nvbuf-len -1 = if
+		nvramrc
+	else
+		nvbuf >nvbuf-end @
+	then
+	bounds ?do
+		i c@ dup carret = if
+			drop cr
+		else
+			emit
+		then
+	loop
+;
+
+: nvshow
+	nvbuf-len -1 <> if
+		cr ." Edited script:" cr 18 dashes
+	then
+	(nvshow)
+;
+
+: nvrun			check-nvbuf nvbuf >nvbuf-end @ evaluate ;
+: nvstore		check-nvbuf nvbuf >nvbuf-end @ " nvramrc" $setenv nvfree ;
+
+: nvgrow
+	nvbuf-len 400 + >r r@ alloc-mem
+	nvbuf over nvbuf-len move
+	nvbuf nvbuf-len free-mem
+	r> to nvbuf-len to nvbuf
+;
+
+
+alias nvrecover noop
+
+80 constant #nvedit-line
+#nvedit-line char+ buffer: nvedit-line
+variable >endline
+variable >line
+
+: find-prev-line	( -- )
+	>line @ ?dup if
+		char- dup if
+			begin
+				char- dup
+			while
+				dup nvbuf + c@ carret =
+			until
+				char+
+			then
+		then
+		>line !
+	then
+;
+
+: (find-line-end)		( offset -- )
+	>r nvbuf dup >nvbuf-end @ +
+	swap r> + char-
+	begin
+		char+ 2dup u>
+	while
+		dup c@ carret =
+	until
+	then
+	nip nvbuf - >endline !
+;
+
+: find-line-end			( -- )
+	>line @ (find-line-end)
+;
+
+: type-line
+	nvbuf >line @ + >endline @ >line @ - type
+;
+
+: nvload			( -- )
+	nvramrc dup >nvbuf-end !
+	dup 100 + dup to nvbuf-len
+	alloc-mem dup to nvbuf
+	swap move
+	
+	>line off
+	find-line-end
+;
+
+: load-line-buf			( -- )
+	nvbuf >line @ + nvedit-line >endline @ >line @ - move
+;
+
+: load-line		( -- len pos )
+	load-line-buf type-line
+	>endline @ >line @ - dup
+;
+
+: store-line		( len -- )
+	dup >endline @ >line @ - - tuck
+	nvbuf-len >nvbuf-end @ - > if nvgrow then
+
+	nvbuf >endline @ +
+	over nvbuf >line @ + +
+	>nvbuf-end @ >endline @ - move
+	nvedit-line nvbuf >line @ + rot move
+	
+	>nvbuf-end +!
+;
+
+: (nvedit-accept-hook)		( len pos char -- len' pos' char true [not handled]
+											| len' pos' false [handled] )
+	case
+		control C of
+			over store-line
+			true to accept-done? false
+		endof
+		control K of
+			2dup = >endline @ >nvbuf-end @ u< and if
+				dup cursor-b dup text-b
+				store-line						( len )
+				>line @ + >r					( R: effective-endline )
+				nvbuf r@ + dup char+ swap
+				r> char+ dup (find-line-end)	( src dest nxline )
+				>nvbuf-end @ swap - move
+				-1 >endline +!
+				-1 >nvbuf-end +!
+				load-line
+			then false
+		endof
+		control L of
+			2dup - cursor-f
+			drop dup store-line dup >line @ + >endline !
+			cr 18 dashes
+			(nvshow)
+			cr 18 dashes
+			cr type-line dup false
+		endof
+		control N of
+			>endline @ >nvbuf-end @ u< if
+				cursor-b dup text-b
+				dup store-line
+				1+ >line +!
+				find-line-end
+				load-line
+			then false
+		endof
+		control O of
+			2dup - text-b
+			>r nvedit-line r@ + dup dup char+ 3 pick r@ - move
+			carret swap c!
+			1+ store-line
+			>line @ r@ + >endline !
+			r> dup false
+		endof
+		control P of
+			cursor-b dup text-b
+			store-line
+			find-prev-line
+			find-line-end
+			load-line false
+		endof
+		carret of
+			dup cursor-b over text-b
+			>r nvedit-line r@ + dup dup char+ 3 pick r@ - move
+			carret swap c!
+			1+ dup store-line
+			>line @ + >endline !
+			r> 1+ >line +!
+			load-line cursor-b 0 false
+		endof
+		true 0
+	endcase
+;
+
+: nvedit-help
+	cr
+	." ^O: insert newline ^K: delete newline ^C: quit" cr
+	." ^N: next line      ^P: previous line  ^L: display all" cr
+;
+
+: nvedit
+	nvedit-help
+	nvbuf-len -1 = if
+		nvload
+	else
+		find-line-end
+	then
+	['] accept-hook behavior >r
+	['] (nvedit-accept-hook) to accept-hook
+	
+	load-line-buf type-line
+	nvedit-line #nvedit-line >endline @ >line @ - dup (accept) drop
+	
+	r> to accept-hook
+;
+
+
+
+: find-nv-devalias		( dev-str dev-len -- alias-begin aliased-path-begin alias-end true
+												| dev-str dev-len false )
+	push-source
+	
+	nvbuf >nvbuf-end @ 2to source
+	>in off
+	
+	begin
+		>in @ >r parse-word dup
+	while
+		" devalias" $= if
+			parse-word 2over $= if
+				2drop r> >in @ parse-line 2drop >in @ char-
+				true pop-source exit
+			then
+		then
+		rdrop
+	repeat
+	rdrop 2drop false
+	
+	pop-source
+;
+
+: ($nvalias)			( dev-str dev-len name-str name-len -- )
+	check-~nvbuf
+	nvload
+	4dup
+	find-nv-devalias if
+		>endline ! >line ! drop load-line-buf
+		tuck nvedit-line swap move
+		store-line
+	else
+		>line off >endline off
+		" devalias " nvedit-line swap move
+		tuck nvedit-line 9 ca+ swap move 9 ca+ >r
+		bl nvedit-line r@ + c! r> char+ >r
+		tuck nvedit-line r@ + swap move r> +
+		carret over nvedit-line + c! char+
+		store-line
+	then	
+	nvstore
+	$devalias
+	
+	" true" " use-nvramrc?" $setenv
+;
+
+: ($nvunalias)			( name-str name-len -- )
+	check-~nvbuf
+	nvload
+	find-nv-devalias if
+		char+ >endline ! drop >line ! load-line-buf
+		0 store-line
+		nvstore
+	else
+		2drop
+		nvfree
+	then
+;
+
+: $nvalias
+	-leading -trailing
+	2swap -leading -trailing
+	($nvalias)	
+;
+
+: $nvunalias
+	-leading -trailing ($nvunalias)
+;
+
+: nvalias
+	parse-word dup 0= if 2drop exit then
+	parse-line $nvalias
+;
+
+: nvunalias
+	parse-word dup 0= if 2drop exit then
+	($nvunalias)
+;
+
+: nv+			( addr len -- )
+	check-~nvbuf
+	nvload
+	>line off >endline off
+	tuck nvedit-line swap move
+	store-line
+	find-line-end
+	nvstore
+;
+
+: nv-delete-line1		( -- )
+	check-~nvbuf
+	nvload
+	>line off
+	find-line-end
+	>endline @ >nvbuf-end @ u< if 1 >endline +! then
+	0 store-line
+	nvstore
+;
+

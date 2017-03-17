@@ -1,0 +1,9 @@
+0 value cpufreq
+0 value busfreq
+
+: clean-frequency		( freq -- freq' )
+	dup d# 40.000000 u>= if d# 5.000000 else d# 1.000000 then >r
+	
+	3 um* r@ 2/ m+ r@ um/mod nip
+	r> um* 3 um/mod nip
+;

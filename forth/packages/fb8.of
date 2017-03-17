@@ -1,0 +1,286 @@
+0 value frame-buffer-adr
+0 value screen-height
+0 value screen-width
+0 value window-top
+0 value window-left
+0 value char-height
+0 value char-width
+0 value fontbytes
+
+0 value font-adr
+0 value font-min
+0 value font-#glyphs
+0 value glyph-bytes
+
+: default-font
+	(default-font) dup >r
+	5 wa+
+	r@ w@
+	r@ wa1+ w@
+	r@ 2 wa+ w@
+	r@ 3 wa+ w@
+	r> 4 wa+ w@
+;
+
+: set-font
+	to font-#glyphs
+	to font-min
+	swapdup 1- *
+	to glyph-bytes
+	to fontbytes
+	to char-height
+	to char-width
+	to font-adr
+;
+
+: >font
+	font-min - dup font-#glyphs u< and
+	glyph-bytes * font-adr +
+;
+
+default-font set-font
+
+: (fb8-line>addr)	( line# -- addr )
+	char-height * window-top + screen-width * frame-buffer-adr + window-left +
+;
+
+: fb8-line>addr		( -- addr )
+	line# (fb8-line>addr)
+;
+
+: fb8-cursor>addr	( -- addr )
+	fb8-line>addr column# char-width * +
+;
+
+: fb8-fill-rectangle	( addr w h color -- )
+	swap 0 ?do
+		3dup fill
+		>r >r screen-width + r> r>
+	loop
+	3drop
+;
+
+: fb8-draw-character
+	>font 1- dup
+	fb8-cursor>addr
+
+	foreground-color 8 << background-color or
+	{ colors }
+
+	char-height 1- 0 ?do
+		0 char-width 0 ?do
+			[ bits/cell 1- ] literal >>r
+			i 7 and 0= if
+				drop >r char+ r> over c@
+				4 >>r				\ current bit is in bitmask 0x8
+			then
+			_1! _2!
+			colors _1@ 8 and >>
+			_2@ c!
+			_2@ char+ _1@
+		loop drop
+		
+		char-width - screen-width +
+		>r drop fontbytes + dup r>
+	loop
+	
+	char-width background-color fill
+	2drop
+;
+
+: fb8-draw-logo				\ NOTE: assumes successive scan lines are not bit-packed!
+	>r >r 1-
+	swap (fb8-line>addr)
+
+	2r>
+	foreground-color 8 << background-color or
+	{ width colors }
+	
+	0 ?do
+		0 width 0 ?do
+			[ bits/cell 1- ] literal >>r
+			i 7 and 0= if
+				drop >r char+ r> over c@
+				4 >>r
+			then
+			_1! _2!
+			colors _1@ 8 and >>
+			_2@ c!
+			_2@ char+ _1@
+		loop drop
+		
+		width - screen-width +
+	loop
+	2drop
+;
+
+: (fb8-move-characters)
+	char-height 0 ?do
+		3dup move
+		>r screen-width + >r screen-width + r> r>
+	loop
+;
+
+: fb8-insert-characters
+	char-width * >r
+	fb8-cursor>addr dup dup r@ +
+	#columns column# - char-width * r@ -
+	(fb8-move-characters)
+	3drop r> char-height background-color fb8-fill-rectangle
+;
+
+: fb8-delete-characters
+	char-width * >r
+	fb8-cursor>addr dup dup r@ + swap
+	#columns column# - char-width * r@ -
+	(fb8-move-characters)
+	chunk + r> char-height background-color fb8-fill-rectangle
+;
+
+: (fb8-move-lines-b)			( src dest #lines -- )
+	#columns char-width *
+	{ line-width }
+
+	>r
+	tuck - swap
+	r> screen-width *
+	bounds ?do
+		dup i +
+		i
+		line-width move
+	screen-width +loop
+	drop
+;
+
+: (fb8-move-lines-f)			( src dest #lines -- )
+	#columns char-width *
+	{ line-width }
+
+	screen-width * >r
+	r@ screen-width -
+	tuck + >r + r>
+	r> 0 ?do
+		over i -
+		over i -
+		line-width move
+	screen-width +loop
+	2drop
+;
+
+: (fb8-fill-lines)			( addr #lines color -- )
+	#columns char-width * swap 2swap
+
+	screen-width *
+	bounds ?do
+		2dup i -rot fill
+	screen-width +loop
+	2drop
+;
+
+: fb8-insert-lines
+	char-height * >r
+	fb8-line>addr dup dup r@ screen-width * +
+	#lines line# - char-height * r@ -
+	(fb8-move-lines-f)
+	r> background-color
+	(fb8-fill-lines)
+;
+
+: fb8-delete-lines
+	char-height * >r
+	fb8-line>addr dup dup r@ screen-width * + swap
+	#lines line# - char-height * r@ - >r r@
+	(fb8-move-lines-b)
+	r> screen-width * + r> background-color
+	(fb8-fill-lines)
+;
+
+: (fb8-screen-prep)		( -- w addr h )
+	#columns char-width *
+	frame-buffer-adr window-left +
+	window-top screen-width * +
+	#lines char-height *
+;
+
+: fb8-erase-screen
+	(fb8-screen-prep) 0 ?do
+		swapdup background-color fill
+		screen-width +
+	loop
+	2drop
+;
+
+: (fb8-invert-rectangle)	( w addr h -- )
+	0 ?do
+		_1! _2! _2@ _1@ begin
+			_2@
+		while
+			_1@ c@ F xor _1@ c!
+			_1@ 1+ _1!
+			_2@ 1- _2!
+		repeat
+		screen-width +
+	loop
+	2drop
+;
+
+: fb8-invert-screen
+	(fb8-screen-prep) (fb8-invert-rectangle)
+;
+
+: fb8-blink-screen	fb8-invert-screen fb8-invert-screen ;
+: fb8-reset-screen	;
+
+: fb8-toggle-cursor
+	char-width 2/
+	fb8-cursor>addr
+	char-height 1- (fb8-invert-rectangle)
+;
+
+: fb8-install
+	screen-#rows min to #lines
+	screen-#columns min to #columns
+	dup #lines char-height * - 2/ to window-top
+	to screen-height
+	dup #columns char-width * - 2/ to window-left
+	to screen-width
+	['] fb8-draw-character to draw-character
+	['] fb8-draw-logo to draw-logo
+	['] fb8-insert-characters to insert-characters
+	['] fb8-delete-characters to delete-characters
+	['] fb8-insert-lines to insert-lines
+	['] fb8-delete-lines to delete-lines
+	['] fb8-erase-screen to erase-screen
+	['] fb8-invert-screen to invert-screen
+	['] fb8-blink-screen to blink-screen
+	['] fb8-reset-screen to reset-screen
+	['] fb8-toggle-cursor to toggle-cursor
+;
+
+: scum-logo
+	" "(
+	01FC00
+	07FF00
+	0F0780
+	1CF9C0
+	3BFEE0
+	77FF70
+	6F07B0
+	EE03B8
+	CF0198
+	CFFC18
+	C7FF18
+	C1FF98
+	CC0798
+	EE03B8
+	6F07B0
+	77FF70
+	3BFEE0
+	1CF9C0
+	0F0780
+	07FF00
+	01FC00
+	)" drop 15 15
+;
+
+

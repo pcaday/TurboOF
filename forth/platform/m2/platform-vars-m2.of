@@ -1,0 +1,5 @@
+( Platform-independent vars )
+10 constant dma-alignment
+
+( macppc vars )
+50F00000 constant via-base

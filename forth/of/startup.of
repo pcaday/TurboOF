@@ -1,0 +1,104 @@
+true value auto-start-up?
+false value in-script?
+
+: eval-script				( -- )
+	true to in-script?
+	nvramrc >r r@ r@ alloc-mem >r
+	r@ swap move
+	r@ 1 rpick eval
+	r> r> free-mem
+	false to in-script?
+;
+
+
+: make-screen-alias	( -- )
+	" screen" /aliases (get-package-property) if
+		screen 0= if default-screen to screen then	
+		screen if
+			screen get-path " screen" $devalias
+		then
+	else
+		drop
+	then
+;
+
+: (install-console)			( -- )
+	make-screen-alias
+	output-device output
+	input-device input
+;
+
+: install-console
+	['] ((emit)) to (emit)
+	['] (key) to key
+	['] (key?) to key?
+	['] (install-console) catch if
+		begin again
+	then
+;
+
+defer system-banner-logo?
+defer system-banner-logo
+defer system-banner-text
+
+' false to system-banner-logo?
+
+: default-system-banner-text	( -- )
+	." Welcome to Open Firmware" cr
+;
+
+' default-system-banner-text to system-banner-text
+
+
+: suppress-banner	in-script? if false to auto-start-up? then ;
+
+: (banner-draw-logo)		( addr -- )
+	line# swap 40 40 " draw-logo" stdout $call-method
+	8 0 ?do cr loop
+;
+
+: banner-draw-logo			( -- )
+	oem-logo? if
+		oem-logo 200 = if
+			(banner-draw-logo) exit
+		then drop
+	then
+	system-banner-logo? if
+		system-banner-logo (banner-draw-logo)
+	then
+;
+
+: (banner)
+	suppress-banner	
+	stdout 0= if exit then
+
+	" device_type" stdout i>pack @ get-package-property 0= if
+		decode-string 2nip " display" $= if
+			banner-draw-logo
+		then
+	then
+	
+	oem-banner? if
+		oem-banner type
+	else
+		system-banner-text
+	then cr cr
+;
+
+: banner	['] (banner) catch drop ;
+
+: start-up					( -- )
+	true to auto-start-up?
+	use-nvramrc? if
+		eval-script
+	then
+	auto-start-up? if
+		probe-all
+		install-console
+		banner
+	then
+	auto-boot? override-load-spec? or if
+		0 0 $boot
+	then
+	quit
+;

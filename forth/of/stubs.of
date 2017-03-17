@@ -1,0 +1,3 @@
+variable mask
+: memory-test-suite	2drop false ;
+: mac-address		0 6 ;
