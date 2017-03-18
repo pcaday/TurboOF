@@ -1,4 +1,7 @@
 # Don't upload object files, except the Win32 build.
 *.o
 *.obj
-frontends/x86-hosted-unix/unix-x86-cl
+frontends/x86-hosted/unix-x86-cl
+
+# Also, don't add symlink to the Forth source
+frontends/x86-hosted/forth

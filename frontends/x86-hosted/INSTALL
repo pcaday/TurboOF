@@ -1,0 +1,59 @@
+---------------------------------------
+Compiling TOF as a Command-line Program
+---------------------------------------
+
+COMPILING TOF
+
+This directory contains small front ends for TOF for Unix-like OSes (OS X/Linux currently supported) and Windows. Compilation requires the NASM assembler, and any C compiler.
+
+To compile the Unix front end, use
+
+	make osx
+
+or
+
+	make linux
+
+The binary is placed in ./tof, and a symlink to the Forth source code is automatically created as ./forth.
+
+To compile the Windows front end using mingw-w64, type
+
+	make win
+
+Native Windows compilation should be possible as well, but no script is provided.
+
+
+
+RUNNING TOF
+
+The command-line front ends currently take no arguments.
+
+At startup, tof searches for a file x86-hosted-text.of in the current folder, preprocesses it, and runs it.
+
+Note that x86-hosted-text.of is written in Forth, and begins with bootstrap Forth code that defines the second- and final-stage Forth interpreter and compiler (contained in forth/forth/forthup.of)
+
+The default x86-hosted-text.of looks for Forth code in a folder 'forth', which is symlinked in place during install. It includes a full Forth environment as well as the Open Firmware backbone and a small device tree. Additional code may be appended, but it is important to preserve the (specialized) bootstrap code at the beginning of x86-hosted-text.of. In particular, no comments are allowed at the beginning -- the bootstrap Forth compiler that will be running your code does not know about comments!
+
+On Unix systems, tof is able to catch exceptions (bus errors, segmentation violations, user interrupts, etc.) using the standard Forth try/catch mechanism. This is not yet implemented, however, for Windows.
+
+
+PREPROCESSOR
+
+For convenience, a small preprocessor is applied to the Forth source (the "text") in x86-hosted-text.of, allowing you to include external Forth source files or arbitrary binaries.
+
+The syntax for the preprocessor commands is:
+
+`include path/to/file
+	Insert a file at this point in the source code.
+
+`bin command path/to/file
+	Embeds a binary file into the source code, and defines a Forth word 'command' which returns the address of the binary.
+
+
+
+
+NOTES
+
+The Unix front end currently only supports OS X and Linux. However, the only system-dependent parts are the signal handler, which needs to know how to access the saved x86 register file in the ucontext_t argument; code for other OSes can be easily added.
+
+Under 64-bit Linux, if you see errors about missing "gnu/stubs-32.h" you probably need to install the 32-bit glibc package.
