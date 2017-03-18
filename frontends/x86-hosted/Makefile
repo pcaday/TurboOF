@@ -40,7 +40,8 @@ forth:
 x86-core-wrap.o: x86-core-wrap.S x86-core-wrap.i $(CORES)/x86/x86-core.S $(CORES)/x86/x86-core.i
 	nasm $(NASMFLAGS) -o x86-core-wrap.o x86-core-wrap.S
 
-.PHONY: clean
 clean:
 	rm -f *.o ../preprocessor.o tof wintof.exe
 	([ -L forth ] && rm forth) || true
+
+.PHONY: clean osx linux win
