@@ -1,0 +1,4 @@
+# Don't upload object files, except the Win32 build.
+*.o
+*.obj
+frontends/x86-hosted-unix/unix-x86-cl
