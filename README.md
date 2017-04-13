@@ -4,7 +4,7 @@ TurboOF is a portable implementation of the Forth language and Open Firmware, th
 
 TurboOF is designed to be readily ported to new ISAs without requiring an external compiler or any runtime environment. A tiny assembly kernel (currently implemented for x86 and PowerPC) runs a very simple pre-Forth environment which in turn bootstraps a full Forth interpreter and simple native code compiler. On top of the Forth system is a full Open Firmware interface.
 
-This repository comes with a command line application `tof` for x86 systems that runs under Mac OS X, Linux, and Windows hosts. It can be used as a plain Forth environment, or as a test bed for Open Firmware development. There are also Open Firmware device drivers for several PowerPC Macintosh systems (PowerBook 1400 and Beige G3, a.k.a. M2 and Gossamer), which are mostly of historical interest. 
+This repository comes with a command line application `tof` for x86 systems that runs under Mac OS X, Linux, and Windows hosts, in `frontends/x86-hosted`. It can be used as a plain Forth environment, or as a test bed for Open Firmware development. There are also Open Firmware device drivers for several PowerPC Macintosh systems (PowerBook 1400 and Beige G3, a.k.a. M2 and Gossamer), which are mostly of historical interest. 
 
 ## Note
 
