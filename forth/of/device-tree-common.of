@@ -111,7 +111,7 @@ unselect-dev
 
 : set-chosen-int	( n paddr plen -- )
 	/chosen get-package-property if -88 throw then
-	drop !-be
+	drop l!-be
 ;
 
 : is-memory		( ihandle -- )

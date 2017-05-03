@@ -135,7 +135,7 @@ drop
 : (marker-of)	dup n>method @ create , , does> 2@ swap n>method ! ;
 
 : (marker)	list @ #hash 1+ 1 ?do #hash i - head @ loop create #hash 1+ 0 do , loop
-		does> #hash 0 ?do dup @ i head ! cell+ loop @ dup list ! last ! ;
+			does> #hash 0 ?do dup @ i head ! cell+ loop @ dup list ! last ! ;
 		
 : marker	active-package dup if (marker-of) else drop (marker) then ;
 
@@ -158,7 +158,7 @@ drop
 ' ((find-of)) dup to (find) to (default-find)
 
 : ?active-package	active-package dup 0= if -8C throw then ;
-: ?my-self		my-self dup 0= if -8D throw then ;
+: ?my-self			my-self dup 0= if -8D throw then ;
 
 : traverse	( phandle -- phandle' )
 	begin
@@ -215,7 +215,7 @@ drop
 
 : property	?active-package (property) ;
 
-: decode-int	over >r >r cell+ r> cell- r> l@-be ;
+: decode-int	over >r >r /l + r> /l - r> <l@-be ;
 : encode-int	here tuck l!-be /l /l allot ;
 
 : decode-bytes	>r over r@ + swap r@ - rot r> ;

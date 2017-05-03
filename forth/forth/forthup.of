@@ -51,14 +51,20 @@
 
 : '<first-prim>	h# 6 ;
 
-: /n		h# 4 ;
+: bye       (host-bye) ; immediate 
+
+: (/n)
+	0 h# 100000000 < h# 4 and h# 4 + _n
+; immediate
+
+: /n		(/n) ;
 : /c		h# 1 ;
 : cell+		/n + ;
 : char+		/c + ;
 : char-		/c - ;
 : cells		/n * ;
 : chars		; immediate
-: aligned	h# 3 + h# FFFFFFFFFFFFFFFC and ;
+: aligned	/n + h# 1 - 0 /n - and ;
 
 : data-base	0 initvec@ ;
 : bd-base	h# 1 initvec@ ;
@@ -220,14 +226,15 @@ prims
 :: |`|		;
 :: noop		;
 
-: size-consts	/c /n ; immediate size-consts
+: size-consts	/c /n h# 2 /n h# 8 = - ; immediate size-consts
+constant log-/n
 constant /n
 constant /c
 
-:: cells	/ 2 << ;
-:: cell+	/ 4 + ;
-:: cell-	/ 4 - ;
-:: /cells	/ 2 >>a ;
+:: cells	log-/n << ;
+:: cell+	/n + ;
+:: cell-	/n - ;
+:: /cells	log-/n >>a ;
 
 :: chars	;
 :: char+	/ 1 + ;
@@ -267,23 +274,23 @@ constant true
 :: iff		>r tuck xor r> and xor ;
 
 :: data-base	/ 0 initvec@ ;
-:: bd-base	/ 1 initvec@ ;
+:: bd-base		/ 1 initvec@ ;
 :: stack-base	/ 2 initvec@ ;
 :: rstack-base	/ 3 initvec@ ;
 :: ftext-base	/ 4 initvec@ ;
-:: am-base	/ 5 initvec@ ;
+:: am-base		/ 5 initvec@ ;
 :: real_base	/ 6 initvec@ ;
 :: real_size	/ 7 initvec@ ;
 :: virt_base	/ 8 initvec@ ;
 :: virt_size	/ 9 initvec@ ;
 :: mem-existing	/ A initvec@ ;
 :: mem-#existing / B initvec@ ;
-:: nvram	/ C initvec@ ;
+:: nvram		/ C initvec@ ;
 :: nvram-size	/ D initvec@ ;
-:: devtree	/ E initvec@ ;
+:: devtree		/ E initvec@ ;
 :: devtree-size	/ F initvec@ ;
 :: internals	/ 11 initvec@ ;
-:: pagetab	/ 12 initvec@ ;
+:: pagetab		/ 12 initvec@ ;
 :: pagetab-size	/ 13 initvec@ ;
 
 : var-init-1
@@ -322,13 +329,13 @@ constant align+
 :: +!		_1! _1@ @ + _1@ ! ;
 
 :: (literal)	dp@ ((literal)) dp! ;
-:: compile,	dp@ (compile) dp! ;
+:: compile,		dp@ (compile) dp! ;
 :: prologue,	dp@ (prologue) dp! ;
 :: epilogue,	dp@ (epilogue) dp! ;
-:: branch,	dp@ (branch) dp! ;
+:: branch,		dp@ (branch) dp! ;
 :: f-branch,	dp@ (f-branch) dp! ;
 :: t-branch,	dp@ (t-branch) dp! ;
-:: return,	dp@ (return) dp! ;
+:: return,		dp@ (return) dp! ;
 
 :: branch-to,	dp@ (branch) tuck dp! (>resolve) ;
 
@@ -364,7 +371,7 @@ constant treg
 		char+ dup c@ h# 26 =
 	until unloop
 	char+		(constant)
-			(variable)
+				(variable)
 	' compile, 	(constant)
 	' execute 	(constant)
 ; immediate var-init-2 <source> <>in> 'compile, 'execute
@@ -433,7 +440,7 @@ constant treg
 ;
 
 : var-init-3
-	(variable)
+	(variable) 
 	' <parse-word> (defer)
 	' <(find)=> (defer)
 	' (new-def) (defer)
@@ -463,16 +470,15 @@ constant bl
 constant amp
 constant csi
 
-: misc-consts	h# FFFFFFFFFFFFFFF3 h# 20 ; immediate misc-consts
+: misc-consts	h# FFFFFFFFFFFFFFF3 h# 8 /n * ; immediate misc-consts
 
 constant bits/cell
 
 constant exc.notfound
 
-
 :: recursive	(recursive) ; >immediate
 
-:: ;		(recursive) (:-end) <stop> >immediate
+:: ;			(recursive) (:-end) <stop> >immediate
 
 : trampoline	drop drop drop ' <compiling> execute ; immediate
 
@@ -555,14 +561,14 @@ trampoline	boing!
 : begin		branch, here dup dup (>resolve) ;					immediate
 : again		branch, here swap (>resolve) ;						immediate
 : until		f-branch, here swap (>resolve) ;					immediate
-: while		f-branch, here swap ;							immediate
-: repeat	branch, here swap (>resolve) here (>resolve) ;				immediate
+: while		f-branch, here swap ;								immediate
+: repeat	branch, here swap (>resolve) here (>resolve) ;		immediate
 : repeat-until	f-branch, here swap (>resolve) here (>resolve) ;			immediate
 : ?repeat	f-branch, here over (>resolve) ;					immediate
-: if		f-branch, here ;							immediate
-: then		here (>resolve) ;							immediate
+: if		f-branch, here ;									immediate
+: then		here (>resolve) ;									immediate
 : else		branch, here tuck (>resolve) ;						immediate
-: ahead		branch, here ;								immediate
+: ahead		branch, here ;										immediate
 
 : <throw>	rdrop recursive <throw> ;
 : throw-creates
@@ -612,11 +618,11 @@ parse-creates source >in base
 ; immediate
 
 : (value-to)	>body ! ;
-: to		(') (value-to) ;>compile (') (literal) compile (value-to) ;
+: to			(') (value-to) ;>compile (') (literal) compile (value-to) ;
 : (2value-to)	>body tuck ! cell+ ! ;
-: 2to		(') (2value-to) ;>compile (') (literal) compile (2value-to) ;
-: (is)		dp@ >r dp! branch-to, r> dp! ;
-: is		(') (is) ;>compile (') (literal) compile (is) ;
+: 2to			(') (2value-to) ;>compile (') (literal) compile (2value-to) ;
+: (is)			dp@ >r dp! branch-to, r> dp! ;
+: is			(') (is) ;>compile (') (literal) compile (is) ;
 
 : do-creates
 	variable
@@ -639,23 +645,23 @@ do-creates #do
 : do		0 compile 2>r branch, here compile (?do) f-branch, here 2dup (>resolve) #do+ ;	immediate
 : loop		compile (loop) loop-common #do- ;						immediate
 : +loop		compile (+loop) loop-common #do- ;						immediate
-: leave		branch, (leave) ;								immediate
-: ?leave	t-branch, (leave) ;								immediate
+: leave		branch, (leave) ;										immediate
+: ?leave	t-branch, (leave) ;										immediate
 
 : i			1 rpick ;
 
 : (case)	;
-: case		0 compile (case) ;							immediate
+: case		0 compile (case) ;										immediate
 : (of)		over = ;
 : of		compile (of) f-branch, here compile drop ;				immediate
-: endof		branch, here tuck (>resolve) ;						immediate
+: endof		branch, here tuck (>resolve) ;							immediate
 : (endcase)	drop ;
 : endcase	compile (endcase) begin ?dup while here (>resolve) repeat ;		immediate
 
-: [char]	parse-word 0<> if c@ (literal) else drop then ;				immediate
+: [char]	parse-word 0<> if c@ (literal) else drop then ;			immediate
 
-: [0-9]		[char] 9 [char] 0 - 1+ (literal) ;					immediate
-: a-[0-9]	[char] A [0-9] - (literal) ;						immediate
+: [0-9]		[char] 9 [char] 0 - 1+ (literal) ;						immediate
+: a-[0-9]	[char] A [0-9] - (literal) ;							immediate
 : (digit)
 	_2! _2@ [char] 0 - _1! _1@
 	[0-9] u< if

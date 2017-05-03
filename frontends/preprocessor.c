@@ -47,7 +47,8 @@ extern void Failed(const char *why, const char *info);
 
 void *round_to_bound(void *addr, unsigned int bound)
 {
-	return (void *) ((((uintptr_t) addr) + bound) & ~bound);
+	uintptr_t b = bound;
+	return (void *) ((((uintptr_t) addr) + b) & ~b);
 }
 
 unsigned int round_to_bound_int(unsigned int n, unsigned long bound)

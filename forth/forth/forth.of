@@ -8,6 +8,7 @@
 ;
 
 : alias		parse-word parse-word (alias) ;
+: ?alias	parse-word parse-word 2over (find) if 2drop 3drop else (alias) then ;
 
 : within	over - >r - r> u< ;
 : between	1+ within ;
@@ -80,12 +81,12 @@ alias invert not
 
 2 constant /w
 4 constant /l
-8 constant /d
+/n 2* constant /d
 
 alias ca+ +
 : wa+		1 << + ;
 : la+		2 << + ;
-: na+		2 << + ;
+: na+		log-/n << + ;
 alias ca1+ char+
 : wa1+		2 + ;
 : la1+		4 + ;
@@ -97,10 +98,13 @@ alias /n* cells
 
 : b>n		[ bits/cell 8 - dup ] literal << literal >>a ;
 : w>n		[ bits/cell 10 - dup ] literal << literal >>a ;
+: l>n		[ bits/cell 20 - dup ] literal << literal >>a ;
+
+?alias l@ @
+?alias l! !
 
 : <w@		w@ w>n ;
-alias l@ @
-alias l! !
+: <l@		l@ l>n ;
 
 : waligned	[ /w 1- ] literal + [ /w negate ] literal and ;
 : walign	dp@ waligned dp! ;
@@ -117,8 +121,8 @@ alias l! !
 : lbflips	bounds ?do i l@ lbflip i l! /l +loop ;
 : lwflips	bounds ?do i l@ lwflip i l! /l +loop ;
 
-: j		3 rpick ;
-: k		5 rpick ;
+: j			3 rpick ;
+: k			5 rpick ;
 
 : count		_1! _1@ char+ _1@ c@ ;
 : packmax	swap >r min r> _1! _2! _2@ _1@ c! _1@ char+ _2@ move _1@ ;	
@@ -422,7 +426,7 @@ alias is to
 
 : push-source	r> source >r >r >in @ >r >r ;
 : pop-source	r> r> >in ! r> r> to source >r ;
-: evaluate	push-source >in off to source interpreting/compiling pop-source ;
+: evaluate		push-source >in off to source interpreting/compiling pop-source ;
 alias eval evaluate
 
 : find
@@ -735,6 +739,7 @@ variable state-valid
 : w!-be		>r wbsplit r@ c! r> 1+ c! ;
 : l@-be		>r r@ 3 + c@ r@ 2+ c@ r@ 1+ c@ r> c@ bljoin ;
 : l!-be		>r lbsplit r@ c! r@ 1+ c! r@ 2+ c! r> 3 + c! ;
+: <l@-be	l@-be l>n ;
 
 : w@-le		dup c@ swap 1+ c@ bwjoin ;
 : w!-le		>r wbsplit r@ 1+ c! r> c! ;
@@ -755,8 +760,34 @@ alias unaligned-l@ l@-be
 alias unaligned-l! l!-be
 [then]
 
+/n 8 = [if]
+: xbsplit	_1! _1@ FF and _1@ 8 >> FF and _1@ 10 >> FF and _1@ 18 >> FF and
+			_1@ 20 >> FF and _1@ 28 >> FF and _1@ 30 >> FF and _1@ 38 >> FF and ; 
+: xwsplit	_1! _1@ FFFF and _1@ 10 >> FFFF and _1@ 20 >> FFFF and _1@ 30 >> FFFF and ;
+: xlsplit	_1! _1@ FFFFFFFF and _1@ 20 >> FFFFFFFF and ;
+: bxjoin	8 << or 8 << or 8 << or 8 << or 8 << or 8 << or 8 << or ;
+: wxjoin	10 << or 10 << or 10 << or ;
+: lxjoin	20 << or ;
+: bxjoin-i	8 >>r or 8 >>r or 8 >>r or 8 >>r or 8 >>r or 8 >>r or 8 >>r or
+			[ bits/cell 38 - ] literal >>r ;
+: wxjoin-i	10 >>r or 10 >>r or 10 >>r or
+			[ bits/cell 30 - ] literal >>r ;
+: lxjoin-i	swap lxjoin ;
+: bxflip	xbsplit bxjoin-i ;
+: wxflip	xwsplit wxjoin-i ;
+: lxflip	xlsplit lxjoin-i ;
+
+: x@-be		>r r@ 7 + c@ r@ 6 + c@ r@ 5 + c@ r@ 4 + c@ r@ 3 + c@ r@ 2+ c@ r@ 1+ c@ r> c@ bxjoin ;
+: x!-be		>r xbsplit r@ c! r@ 1+ c! r@ 2+ c! r@ 3 + c! r@ 4 + c! r@ 5 + c! r@ 6 + c! r> 7 + c! ;
+: x@-le		>r r@ c@ r@ 1+ c@ r@ 2+ c@ r@ 3 + c@ r@ 4 + c@ r@ 5 + c@ r@ 6 + c@ r> 7 + c@ bxjoin ;
+: x!-le		>r xbsplit r@ 7 + c! r@ 6 + c! r@ 5 + c! r@ 4 + c! r@ 3 + c! r@ 2+ c! r@ 1+ c! r> c! ;
+
+alias @-be x@-be
+alias !-be x!-be
+[else]
 alias @-be l@-be
 alias !-be l!-be
+[then]
 
 defer (emit)
 defer emit?
@@ -853,17 +884,17 @@ defer d. ' ud. to d.
 	base @ >r hex cr
 	tuck /cells 2 >> 0 ?do
 		dup .cell ." :  "
-		dup l@-be .cell space
-		na1+ dup l@-be .cell space
-		na1+ dup l@-be .cell space
-		na1+ dup l@-be .cell cr
+		dup @-be .cell space
+		na1+ dup @-be .cell space
+		na1+ dup @-be .cell space
+		na1+ dup @-be .cell cr
 		na1+
 		exit? if unloop r> base ! 2drop exit then
 	loop
 	swap [ /n 4 * 1- ] literal and dup if
 		swap dup .cell ." :  "
 		over /cells 0 ?do
-			dup l@-be .cell space
+			dup @-be .cell space
 			na1+
 		loop
 		swap /n1- and bounds ?do

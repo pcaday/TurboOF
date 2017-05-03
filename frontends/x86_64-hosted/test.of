@@ -1,0 +1,264 @@
+: -1		_1@ _1@ = ;
+: 0			_1@ _1@ < ;
+: 1			0 -1 - ;
+: 2			1 1 + ;
+: 3			1 2 + ;
+: -3		3 -1 * ;
+: 4			2 2 + ;
+: -4		4 -1 * ;
+: 5			4 1 + ;
+: 6			4 2 + ;
+: 7			4 3 + ;
+: 8			4 4 + ;
+: 9			8 1 + ;
+: 12		4 8 + ;
+: 16		8 8 + ;
+: -16		16 -1 * ;
+: 32		16 16 + ;
+: 64		8 8 * ;
+: 256		16 16 * ;
+: 4096		16 256 * ;
+: 65536		256 256 * ;
+: 65537		65536 1 + ;
+: 0x12		16 2 + ;
+: 0x1234	0x12 256 1 + * 16 1 + 2 * + ;
+: 0x12345678	0x1234 65536 1 + * 16 1 + 256 1 + * 4 * + ;
+: 0x123..EF0	0x12345678 32 << 0x12345678 + 16 1 + 256 1 + 65536 1 + * * 8 * + 16 - ;
+: 0x100000000	1 32 << ;
+: 0x100000001	1 32 << 1 + ;
+: 0x80...0	1 1 >>r ;
+
+: end-o-mem	8 initvec@ 9 initvec@ + ;
+: scratch1	end-o-mem 65536 - ;
+: scratch2	scratch1 65536 - ;
+
+
+: bye		(host-bye) ; immediate
+
+: swap		_1! _2! _1@ _2@ ;
+
+
+
+: drop		_1! ;
+: 2drop		_1! _2! ;
+: nip		_1! _2! _1@ ;
+: dup		_1! _1@ _1@ ;
+: swap		_1! _2! _1@ _2@ ;
+: over		_1! _2! _2@ _1@ _2@ ;
+: tuck		_1! _2! _1@ _2@ _1@ ;
+: 2dup		_1! _2! _2@ _1@ _2@ _1@ ;
+: pick3		>r >r _1! _2! _2@ _1@ r> r> _2@ ;
+
+: iff		>r tuck xor r> and xor ;
+
+: begin		r> dup >r >r ;
+: again		r> drop r> dup >r >r ;
+: until		_2! r> r> _2@ >r tuck r> iff swap >r >r ;
+: unloop	r> r> drop >r ;
+
+: (/n)
+	0 1
+	begin
+		8 >>r
+		_1! 1 +
+		_1@ _1@ 1 =
+	until unloop
+	drop _n
+; immediate
+
+: /n		(/n) ;
+
+: /n-test	16 1 - aligned <dump> ; immediate /n-test
+
+bye
+
+
+
+: [9]		9 _n ; immediate
+
+: (boot#-test)
+			1 [9] 2 ;
+
+: boot#-test
+			(boot#-test) <dump> ; immediate boot#-test
+			
+
+: terminal-test
+		1 2 3 (host-key) (host-key?) (host-key) (host-key?) (host-key) (host-key?) (host-key) <dump>
+		; immediate terminal-test
+
+
+: compile-test
+			scratch1
+			7 swap ((literal))
+			(return)
+			_1!
+			
+			scratch2
+			(prologue)
+			(t-branch) _1!
+			9 _1@ ((literal))
+			(branch)
+			_2!
+			_1@ _2@ (>resolve)
+			-4 _2@ ((literal))
+			_1! _1@
+			_2@ _1@ (>resolve)
+			0x12345678 swap ((literal))
+			scratch1 swap (compile)
+			6 swap ((literal))
+			(epilogue)
+			1 2 3 scratch2 execute <dump>
+			2 initvec@ 4 + dsp! ; immediate compile-test
+
+
+: decompile-test
+			scratch1
+			decompile <dump> _1! _1!
+			decompile <dump> _1! 
+			_1!
+			
+			scratch2
+			decompile <dump> _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1! _1!
+			decompile <dump> _1!
+			_1!
+			; immediate decompile-test
+
+: iv-test	0 initvec@
+			1 initvec@
+			2 initvec@
+			3 initvec@
+			4 initvec@
+			5 initvec@
+			6 initvec@
+			7 initvec@
+			8 initvec@
+			9 initvec@
+			<dump> ; immediate iv-test
+
+: misc-test	6 rs>compile
+			1 2 3 exec'able
+			4 5 6 (:-exec'able)
+			
+
+			<dump> ; immediate misc-test
+
+: /__-test	/code /prologue /epilogue /literal /branch /compile body-offset <dump> ;
+			immediate /__-test
+
+: <core>-test
+			<core> _2! _1!
+			_1@ _2@
+			_1@ @ _1@ 4 + @
+			<dump> ; immediate <core>-test
+
+: flush-test 1 2 3 flush <dump> ; immediate flush-test
+
+: comp-test	0x12345678 scratch1 l!
+			0x12345678 scratch1 4 + l!
+			scratch1 scratch2 8 move
+			scratch2 6 + >r r@ c@ 32 - r> c!
+			scratch1 scratch2 1 comp
+			<dump> ; immediate comp-test
+
+: fill-test	scratch1 5 32 fill
+			scratch1 l@
+			scratch1 4 + l@
+			scratch1 8 + l@
+			<dump> ; immediate fill-test
+
+: move-test	0x12345678 scratch1 l!
+			0x12345678 2 * scratch1 4 + l!
+			scratch1 scratch2 8 move
+			scratch2 l@ scratch2 4 + l@ <dump> ; immediate move-test
+
+: (rsptest)	1 2 rsp@ 4 + rsp! ;
+: rsptest	(rsptest) 3 4 ;
+: RSPTEST	rsptest 5 6 <dump> ; immediate RSPTEST
+
+: weirddup	>r >r 0 rpick 1 rpick r> 1 + r> 1 + ; 
+
+: rops-test
+		1 5 weirddup <dump> ; immediate weirddup-test
+
+
+: sptesting		dsp@ dsp@ dsp@ rsp@ <dump> ;
+: *sptesting*	sptesting ;
+: **sptesting**	*sptesting* ;
+: test0		sptesting ; immediate test0
+: test1		*sptesting* ; immediate test1
+: test2		**sptesting** ; immediate test2
+
+
+: ?m*		m* ;
+: m*-testing
+			4 4 ?m*
+			4 -4 ?m*
+			-4 4 ?m*
+			-4 -4 ?m* 
+			0x100000001 0x100000001 ?m*
+			0x100000001 -1 * 0x100000001 ?m*
+			0x80...0 1 ?m*
+			0x80...0 -1 ?m*
+			0x80...0 0x80...0 ?m*
+			<dump> ; immediate m*-testing			
+
+: um/mod-testing
+			16 0 3 um/mod
+			16 6 3 um/mod
+			0  1 3 um/mod
+			0  5 3 um/mod
+			-1 0 3 um/mod
+			-1 5 3 um/mod <dump> ; immediate um/mod-testing
+
+: ?/mod		u/mod ;
+: /testing	16 3 ?/mod
+			-16 3 ?/mod
+			16 -3 ?/mod
+			-16 -3 ?/mod <dump> ; immediate /testing
+
+: ltesting	3 5 and
+			3 5 or
+			3 5 xor <dump> ; immediate ltesting
+
+: */-testing	4 12 * <dump> -1 * <dump> 4 / <dump> -1 / <dump> ; immediate */-testing
+
+: ?			>>r ;
+: <<testing 3 0 ?
+			3 1 ?
+			3 2 ?
+			3 3 ?
+			3 64 2 - ?
+			3 64 1 - ?
+			3 64 ?
+			<dump> ; immediate <<testing
+
+: ?			= ;
+: rel-testing	1 2 ? 
+			1 1 ? 
+			1 0 ? 
+			1 -1 ? 
+			0 1 ? 
+			0 0 ? 
+			0 -1 ? 
+			-1 1 ? 
+			-1 0 ? 
+			-1 -1 ? 
+			-1 -4 ? 
+			-4 -1 ?	<dump>	; immediate rel-testing
+
+: ?!		c! ;
+: @!-test	0x123..EF0 scratch1 ?! 
+			scratch1 c@
+			scratch1 w@
+			scratch1 l@
+			scratch1 @
+			<dump> ; immediate @!-test
+

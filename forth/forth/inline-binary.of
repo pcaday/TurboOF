@@ -1,8 +1,8 @@
 : :binary
 	source drop >r
-	>in @ dup cell+ >in !
+	>in @ dup /l + >in !
 	create
-		>in @ r@ + aligned tuck ,
+		>in @ r@ + laligned tuck ,
 		r@ + l@-be + r> - >in !
 	does>
 		@
